@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <title>Put your website on Google Play</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,300..800&display=swap">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <main class="layout">
+    <div class="flow">
+      <header class="intro">
+        <h1>Put your website on Google Play.</h1>
+        <p class="lede">Paste your site&rsquo;s address. We check it, package it as an Android app, and give you the file Google Play asks for.</p>
+      </header>
+
+      <form id="check-form" class="address" novalidate>
+        <label for="url">Website address</label>
+        <div class="inline">
+          <input id="url" name="url" type="text" inputmode="url" autocomplete="url" autocapitalize="off" spellcheck="false" placeholder="https://yourshop.com">
+          <button type="submit" class="btn primary" id="check-btn">Check my website</button>
+        </div>
+        <p class="hint">Your site must be live on HTTPS and have a web app manifest.</p>
+        <p id="check-error" class="msg bad" role="alert" hidden></p>
+      </form>
+
+      <section id="report" class="block" aria-labelledby="report-title" hidden>
+        <h2 id="report-title" tabindex="-1"></h2>
+        <ul id="report-list" class="checks"></ul>
+        <div id="report-warnings" hidden>
+          <h3>Worth improving</h3>
+          <ul id="warn-list" class="notes"></ul>
+        </div>
+      </section>
+
+      <form id="build-form" class="block" aria-labelledby="details-title" novalidate hidden>
+        <h2 id="details-title">App details</h2>
+        <div class="field">
+          <label for="app-name">App name</label>
+          <input id="app-name" maxlength="50" autocomplete="off">
+          <p class="hint">The full name of your app.</p>
+        </div>
+        <div class="field">
+          <label for="short-name">Name under the icon</label>
+          <input id="short-name" maxlength="12" autocomplete="off">
+          <p class="hint">12 characters or fewer.</p>
+        </div>
+        <div class="field">
+          <label for="package-id">App ID</label>
+          <input id="package-id" class="mono" autocomplete="off" autocapitalize="off" spellcheck="false" aria-describedby="pkg-hint">
+          <p class="hint" id="pkg-hint">Permanent once you upload to Google Play. Use lowercase letters, numbers and underscores, like com.mycompany.myapp.</p>
+        </div>
+        <div class="field narrow">
+          <label for="version">Version number</label>
+          <input id="version" type="number" min="1" step="1" value="1" inputmode="numeric">
+          <p class="hint">Start at 1. Raise it by 1 for every update you upload.</p>
+        </div>
+        <label class="check"><input type="checkbox" id="notifications"> Ask visitors for notification permission</label>
+        <p id="build-error" class="msg bad" role="alert" hidden></p>
+        <button class="btn primary" id="build-btn" type="submit">Build my app</button>
+      </form>
+
+      <section id="progress" class="block" aria-labelledby="progress-title" hidden>
+        <h2 id="progress-title" tabindex="-1">Building your app</h2>
+        <p id="progress-note" class="hint"></p>
+        <ol id="steps" class="steps"></ol>
+        <p id="sr-status" class="sr-only" role="status"></p>
+        <p id="progress-error" class="msg bad" role="alert" hidden></p>
+        <button id="retry-btn" class="btn" type="button" hidden>Back to app details</button>
+      </section>
+
+      <section id="result" class="block" aria-labelledby="result-title" hidden>
+        <h2 id="result-title" tabindex="-1">Your app is ready.</h2>
+        <p>Download everything now. Files are deleted from this server after one hour.</p>
+        <p><a id="dl-aab" class="btn primary" download>Download app bundle (.aab)</a></p>
+        <p class="hint">This is the file Google Play Console asks for.</p>
+
+        <h3>What to do next</h3>
+        <ol class="next">
+          <li>
+            <strong>Put the verification file on your website.</strong>
+            Host <code>assetlinks.json</code> at
+            <span class="copyline"><code id="al-url"></code> <button type="button" class="link" id="copy-url">Copy address</button></span>
+            Without it, the app shows a browser bar.
+          </li>
+          <li><strong>Upload the .aab</strong> in Google Play Console. Create your app, then choose Testing or Production.</li>
+          <li>
+            <strong>After your first upload,</strong> open App integrity in Play Console and add Google&rsquo;s app signing key
+            fingerprint to <code>assetlinks.json</code>, next to this one:
+            <span class="copyline"><code id="fp" class="fp"></code> <button type="button" class="link" id="copy-fp">Copy fingerprint</button></span>
+          </li>
+        </ol>
+
+        <h3>Other files</h3>
+        <ul id="other-files" class="files"></ul>
+        <p class="note">Keep the signing key and its password in a safe place. You need them to publish updates.</p>
+
+        <button id="again-btn" class="btn" type="button">Build another app</button>
+      </section>
+    </div>
+
+    <aside class="stage" aria-hidden="true">
+      <div id="phone" class="phone" data-state="web">
+        <div class="status"></div>
+        <div class="browserbar"><span id="pv-host">yoursite.com</span></div>
+        <div class="page">
+          <span style="width:62%"></span>
+          <span style="width:88%"></span>
+          <span style="width:74%"></span>
+          <span class="block-bar"></span>
+          <span style="width:80%"></span>
+          <span style="width:55%"></span>
+        </div>
+        <div class="splash">
+          <div class="mark" id="pv-mark">A</div>
+          <div class="pv-name" id="pv-name">Your app</div>
+          <div class="meter"><span></span></div>
+        </div>
+      </div>
+      <p id="pv-caption" class="caption">How visitors see your site now.</p>
+    </aside>
+  </main>
+  <script src="/app.js" defer></script>
+</body>
+</html>
