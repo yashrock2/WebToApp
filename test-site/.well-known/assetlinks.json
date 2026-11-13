@@ -1,0 +1,8 @@
+[{
+  "relation": ["delegate_permission/common.handle_all_urls"],
+  "target": {
+    "namespace": "android_app",
+    "package_name": "app.netlify.nimble_douhua_fa44f5.twa",
+    "sha256_cert_fingerprints": ["4E:CE:B6:43:36:E8:53:21:D7:CE:0A:F9:01:39:E3:3A:73:E3:CD:A6:8C:87:74:C4:53:0A:30:00:6C:9B:9B:A9"]
+  }
+}]

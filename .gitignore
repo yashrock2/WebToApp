@@ -1,0 +1,17 @@
+# Generated Android builds
+builds/
+*.aab
+*.apk
+
+# Dependencies
+node_modules/
+
+# Environment variables
+.env
+.env.*
+
+# Netlify
+.netlify/
+
+# Logs
+*.loggit

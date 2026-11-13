@@ -1,0 +1,4 @@
+#Tue Nov 10 14:53:41 IST 2026
+base.0=C\:\\Users\\Appex\\Desktop\\webtoapp\\twa-test\\app\\build\\intermediates\\dex\\release\\minifyReleaseWithR8\\classes.dex
+renamed.0=classes.dex
+path.0=classes.dex
