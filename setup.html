@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="dark">
+  <meta name="theme-color" content="#0b1220">
+  <title>PWA Setup — WebToApp</title>
+  <meta name="description" content="Configure your website's PWA files with WebToApp.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Space+Grotesk:wght@500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body class="pwa-setup-page">
+  <div class="ambient ambient-one" aria-hidden="true"></div>
+  <div class="ambient ambient-two" aria-hidden="true"></div>
+  <div class="app-shell">
+    <nav class="topbar" aria-label="Main navigation">
+      <a class="brand" href="index.html" aria-label="WebToApp home">
+        <span class="brand-mark" aria-hidden="true"><span></span><span></span><span></span><span></span></span>
+        <span>webto<span class="brand-accent">app</span></span>
+      </a>
+      <div class="topbar-right"><span class="secure-label"><span class="secure-dot"></span> Secure build workspace</span><a class="top-link" href="index.html">Back to website check</a></div>
+    </nav>
+
+    <main class="pwa-page-main">
+      <div class="eyebrow"><span class="eyebrow-line"></span> STEP 02 / PWA PREPARATION</div>
+      <header class="pwa-page-intro">
+        <h1>Prepare your website<br><span class="headline-accent">for an app.</span></h1>
+        <p class="lede">Add your app details, choose its appearance and generate the PWA setup files. Your website hosting will not be changed automatically.</p>
+      </header>
+
+      <section class="workflow-card pwa-page-card" aria-labelledby="pwa-title">
+        <div class="panel-heading">
+          <div><h2 id="pwa-title">PWA configuration</h2><p id="pwa-site-label">Configure the details for your website.</p></div>
+          <span class="ready-pill pwa-needed-pill"><span></span> Setup needed</span>
+        </div>
+
+        <form id="pwa-form" class="pwa-form" novalidate>
+          <div class="form-grid">
+            <div class="field field-wide"><label for="pwa-name">App name</label><input id="pwa-name" maxlength="50" required placeholder="My Business"></div>
+            <div class="field"><label for="pwa-short-name">Short name</label><input id="pwa-short-name" maxlength="12" required placeholder="MyApp"><p class="hint">12 characters or fewer.</p></div>
+            <div class="field"><label for="pwa-display">Display mode</label><select id="pwa-display"><option value="standalone">Standalone (recommended)</option><option value="fullscreen">Fullscreen</option><option value="minimal-ui">Minimal UI</option><option value="browser">Browser</option></select></div>
+            <div class="field field-wide"><label for="pwa-description">Description</label><input id="pwa-description" maxlength="300" placeholder="Describe your app"></div>
+            <div class="field"><label for="pwa-theme">Theme colour</label><input id="pwa-theme" type="color" value="#17243A"></div>
+            <div class="field"><label for="pwa-background">Background colour</label><input id="pwa-background" type="color" value="#ffffff"></div>
+            <div class="field field-wide"><label for="pwa-logo">App logo</label><input id="pwa-logo" type="file" accept="image/png,image/jpeg,image/webp" required><p class="hint">Upload a PNG, JPEG or WebP logo up to 5 MB. We'll create 192×192 and 512×512 PNG icons.</p><div id="pwa-logo-name" class="file-selection" aria-live="polite">No logo selected.</div></div>
+          </div>
+          <label class="check notification-option pwa-sw-option"><input type="checkbox" id="pwa-service-worker"><span class="custom-check" aria-hidden="true"></span><span><strong>Include a service worker starter file</strong><small>Optional template. It must be reviewed and installed on your website by its owner.</small></span></label>
+          <p id="pwa-error" class="msg bad" role="alert" hidden></p>
+          <div class="form-footer"><span class="footer-note">Your website files won't be changed automatically.</span><button class="btn primary" id="pwa-generate-btn" type="submit">Generate PWA setup ZIP</button></div>
+        </form>
+
+        <section id="pwa-result" class="block pwa-result" aria-labelledby="pwa-result-title" hidden>
+          <div class="success-banner"><span class="success-icon" aria-hidden="true">✓</span><span>PWA PACKAGE READY</span></div>
+          <h2 id="pwa-result-title" tabindex="-1">Your PWA setup files are ready.</h2>
+          <p class="result-lede">Download and extract the ZIP, then upload the included files to your website hosting. WebToApp cannot change your hosting files from a URL alone.</p>
+          <a id="pwa-download" class="btn primary download-button" download>Download PWA setup <span>.ZIP</span></a>
+          <div class="pwa-direct-link">
+            <div class="pwa-direct-link-heading">
+              <span>Direct download link</span>
+              <button id="pwa-copy-link" class="btn secondary pwa-copy-link" type="button">Copy link</button>
+            </div>
+            <a id="pwa-download-url" href="#" target="_blank" rel="noopener">Your download link will appear here.</a>
+          </div>
+          <div class="pwa-upload-steps"><h3>What to do next</h3><ol><li>Extract the ZIP on your computer.</li><li>Upload <code>manifest.webmanifest</code> and the <code>icons</code> folder to your website's public root.</li><li>Follow <code>integration/html-instructions.txt</code> to add the manifest link and theme colour to your homepage.</li><li>After publishing the changes, return to Page 1 and rescan your website.</li></ol></div>
+          <p class="msg" id="pwa-package-meta" role="status"></p>
+          <a class="btn secondary" href="index.html" id="pwa-rescan-link">Return to website check</a>
+        </section>
+      </section>
+      <p class="pwa-page-footnote"><a href="index.html">← Back to Page 1</a><span>WebToApp · PWA preparation</span></p>
+    </main>
+  </div>
+  <script src="/pwa-setup.js?v=20261114-2" defer></script>
+</body>
+</html>

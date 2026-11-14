@@ -1,17 +1,25 @@
-# Generated Android builds
+# Dependencies
+node_modules/
+
+# Environment variables and secrets
+.env
+.env.*
+
+# Android builds
 builds/
 *.aab
 *.apk
 
-# Dependencies
-node_modules/
+# Generated PWA packages and test outputs
+pwa-packages/
+test-pwa-output/
+test-pwa-package/
 
-# Environment variables
-.env
-.env.*
+# Temporary duplicate files
+New folder/
 
 # Netlify
 .netlify/
 
 # Logs
-*.loggit
+*.log

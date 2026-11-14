@@ -1,8 +1,10 @@
 (() => {
   'use strict';
 
-  const $ = (id) => document.getElementById(id);
-  const PKG_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
+const $ = (id) => document.getElementById(id);
+const API_BASE_URL = 'http://127.0.0.1:3000';
+  
+    const PKG_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/;
   const DEFAULT_THEME = '#17243A';
   const STEP_LABELS = [
     'Check your website',
@@ -29,6 +31,7 @@
     checkForm: $('check-form'), url: $('url'), checkBtn: $('check-btn'), checkError: $('check-error'),
     report: $('report'), reportTitle: $('report-title'), reportList: $('report-list'),
     warnBox: $('report-warnings'), warnList: $('warn-list'),
+    pwaContinueWrap: $('pwa-continue-wrap'), continuePwaBtn: $('continue-pwa-btn'),
     buildForm: $('build-form'), appName: $('app-name'), shortName: $('short-name'),
     pkg: $('package-id'), version: $('version'), notifications: $('notifications'),
     buildError: $('build-error'), buildBtn: $('build-btn'),
@@ -89,20 +92,42 @@
 
   async function api(path, body) {
     let res;
+
     try {
-      res = await fetch(path, body
-        ? { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }
-        : undefined);
-    } catch {
-      throw new Error('Cannot reach the server. Check that it is running, then try again.');
+        res = await fetch(`${API_BASE_URL}${path}`, body
+            ? {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(body)
+            }
+            : {
+                method: 'GET'
+            }
+        );
+    } catch (error) {
+        throw new Error(
+            'Cannot reach the backend server. Make sure node server.cjs is running.'
+        );
     }
+
     let data = null;
+
     try {
-      data = await res.json();
-    } catch { /* not JSON */ }
-    if (!res.ok) throw new Error((data && data.error) || 'Something went wrong. Please try again.');
+        data = await res.json();
+    } catch {
+        // Response was not JSON.
+    }
+
+    if (!res.ok) {
+        throw new Error(
+            (data && data.error) || `Request failed with status ${res.status}`
+        );
+    }
+
     return data;
-  }
+}
 
   function focusHeading(el) {
     el.focus({ preventScroll: false });
@@ -202,8 +227,7 @@
     }
   });
 
-  els.checkForm.addEventListener('submit', async (e) => {
-    e.preventDefault();
+  async function runWebsiteScan() {
     const url = normalizeUrl(els.url.value);
     clearResults();
     if (!url) {
@@ -211,18 +235,101 @@
       els.url.focus();
       return;
     }
+
     els.url.value = url;
     setPhone('web', { host: hostOf(url) });
-    setBusy(els.checkBtn, true, 'Checking\u2026');
+    setBusy(els.checkBtn, true, 'Scanning…');
+
     try {
-      const r = await api('/api/check', { url });
+      const scan = await api('/api/pwa/scan', { url });
       state.checkedUrl = url;
-      renderReport(r, url);
+      renderPwaScan(scan, url);
+
+      if (scan.status === 'ready') {
+        // Keep the existing Android eligibility check and build flow unchanged.
+        const compatibility = await api('/api/check', { url });
+        renderReport(compatibility, url);
+      }
     } catch (err) {
       showMsg(els.checkError, err.message);
     } finally {
       setBusy(els.checkBtn, false, 'Check my website');
     }
+  }
+
+  els.checkForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    await runWebsiteScan();
+  });
+
+  function renderPwaScan(scan, url) {
+    els.reportList.replaceChildren();
+    els.warnList.replaceChildren();
+    show(els.pwaContinueWrap, false);
+
+    const checks = scan.checks || {};
+    Object.entries(checks).forEach(([key, check]) => {
+      const label = {
+        https: 'HTTPS',
+        homepage: 'Homepage reachable',
+        manifest: 'Web app manifest',
+        manifestValid: 'Manifest validity',
+        appName: 'App name',
+        appIcon: 'App icon',
+        serviceWorker: 'Service worker (optional)',
+      }[key] || key;
+
+      addItem(
+        els.reportList,
+        check.passed ? 'ok' : (check.required ? 'bad' : ''),
+        `${label}: ${check.message}`
+      );
+    });
+
+    const warnings = scan.warnings || [];
+    warnings.forEach((warning) => addItem(els.warnList, '', warning));
+    show(els.warnBox, warnings.length > 0);
+
+    if (scan.status === 'needs_https') {
+      els.reportTitle.textContent = 'HTTPS is required before PWA preparation.';
+      show(els.buildForm, false);
+      setPhone('web', { host: hostOf(url) });
+    } else if (scan.status === 'ready') {
+      els.reportTitle.textContent = 'Your website already meets the PWA checks.';
+      show(els.pwaContinueWrap, false);
+      setPhone('app', {
+        host: scan.host,
+        name: scan.website?.appName || 'Your app',
+        theme: scan.website?.themeColor || DEFAULT_THEME,
+      });
+    } else if (scan.ok) {
+      els.reportTitle.textContent = 'Your website needs PWA setup.';
+      sessionStorage.setItem('webtoapp:pwaSetup', JSON.stringify({ url, scan }));
+      show(els.pwaContinueWrap, true);
+      show(els.buildForm, false);
+
+      const website = scan.website || {};
+      const detectedName = website.appName || website.title || hostOf(url);
+      setPhone('app', { host: scan.host || hostOf(url), name: detectedName, theme: website.themeColor || DEFAULT_THEME });
+    } else {
+      els.reportTitle.textContent = 'We could not complete the website scan.';
+      (scan.errors || ['The website scan failed.']).forEach((error) => {
+        addItem(els.reportList, 'bad', error);
+      });
+      show(els.buildForm, false);
+    }
+
+    show(els.report, true);
+    focusHeading(els.reportTitle);
+  }
+
+  els.continuePwaBtn.addEventListener('click', () => {
+    const saved = sessionStorage.getItem('webtoapp:pwaSetup');
+    if (!saved) {
+      showMsg(els.checkError, 'Please scan your website again before continuing.');
+      return;
+    }
+    window.location.href = 'setup.html';
   });
 
   // ---------- build ----------
