@@ -484,18 +484,34 @@ async function buildApp(options, log = () => {}) {
   const buildDir = path.resolve(options.outDir || path.join(__dirname, 'builds', `${slug}-${Date.now()}`));
   fs.mkdirSync(buildDir, { recursive: true });
 
-  const password = crypto.randomBytes(18).toString('base64url');
+  const persistedKey = options.signingKey &&
+    Buffer.isBuffer(options.signingKey.keystoreBuffer) &&
+    typeof options.signingKey.password === 'string' &&
+    typeof options.signingKey.keyAlias === 'string' &&
+    typeof options.signingKey.fingerprint === 'string';
+
+  const password = persistedKey
+    ? options.signingKey.password
+    : crypto.randomBytes(18).toString('base64url');
   const redact = makeRedactor(password);
   const keytool = findKeytool();
   const keystorePath = path.join(buildDir, 'android.keystore');
-  const keyAlias = 'android';
+  const keyAlias = persistedKey ? options.signingKey.keyAlias : 'android';
+  let fingerprint;
 
-  log('2/6 Creating the signing key...');
-  createKeystore({
-    keytool, keystorePath, alias: keyAlias, password, redact,
-    dname: `CN=${cleanDnPart(name)}, OU=TWA, O=${cleanDnPart(site.host)}, C=${COUNTRY}`,
-  });
-  const fingerprint = readFingerprint({ keytool, keystorePath, alias: keyAlias, password, redact });
+  if (persistedKey) {
+    log('2/6 Loading your saved signing key...');
+    fs.writeFileSync(keystorePath, options.signingKey.keystoreBuffer, { mode: 0o600 });
+    fingerprint = options.signingKey.fingerprint;
+  } else {
+    // Retain the original standalone CLI behavior. Server builds always supply a project key.
+    log('2/6 Creating the signing key...');
+    createKeystore({
+      keytool, keystorePath, alias: keyAlias, password, redact,
+      dname: `CN=${cleanDnPart(name)}, OU=TWA, O=${cleanDnPart(site.host)}, C=${COUNTRY}`,
+    });
+    fingerprint = readFingerprint({ keytool, keystorePath, alias: keyAlias, password, redact });
+  }
 
   log('3/6 Writing twa-manifest.json...');
   const twa = buildTwaManifest({
@@ -533,6 +549,17 @@ async function buildApp(options, log = () => {}) {
   log('6/6 Writing assetlinks.json...');
   const assetLinks = path.join(buildDir, 'assetlinks.json');
   fs.writeFileSync(assetLinks, JSON.stringify(buildAssetLinks(packageId, [fingerprint]), null, 2));
+  if (persistedKey) {
+    // The reusable signing key remains encrypted in SQLite; never leave a plaintext copy
+    // in a downloadable build folder.
+    fs.rmSync(keystorePath, { force: true });
+    return {
+      buildDir, packageId, host: site.host, fingerprint, warnings: site.warnings,
+      files: { aab, apk, assetLinks },
+    };
+  }
+
+  // Preserve the original standalone CLI export behavior only for non-server builds.
   const passwordFile = path.join(buildDir, 'keystore-password.txt');
   fs.writeFileSync(passwordFile, password + '\n');
 

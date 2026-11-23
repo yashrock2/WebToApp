@@ -23,8 +23,6 @@ const API_BASE_URL = 'http://127.0.0.1:3000';
   const OTHER_FILES = [
     { key: 'assetlinks', label: 'assetlinks.json', note: 'Put this on your website (first step above).' },
     { key: 'apk', label: 'Test app (.apk)', note: 'Install it on an Android phone to try the app before you upload.' },
-    { key: 'keystore', label: 'Signing key (android.keystore)', note: 'Keep a private copy. You need it to publish updates.' },
-    { key: 'password', label: 'Key password (keystore-password.txt)', note: 'Store it somewhere safe, then delete this file.' },
   ];
 
   const els = {
@@ -366,10 +364,20 @@ const API_BASE_URL = 'http://127.0.0.1:3000';
 
     setBusy(els.buildBtn, true, 'Starting\u2026');
     try {
+      const projectStorageKey = 'webtoapp:project:' +
+        new URL(state.checkedUrl).origin + ':' + packageId;
+      let savedProjectId = null;
+      try { savedProjectId = localStorage.getItem(projectStorageKey); } catch { /* storage may be unavailable */ }
+
       const job = await api('/api/build', {
         url: state.checkedUrl, name, shortName, packageId, versionCode,
         notifications: els.notifications.checked,
+        ...(savedProjectId ? { projectId: savedProjectId } : {}),
       });
+
+      if (job.projectId) {
+        try { localStorage.setItem(projectStorageKey, job.projectId); } catch { /* build still proceeds without browser storage */ }
+      }
       startProgress(job.id, name);
     } catch (err) {
       showMsg(els.buildError, err.message);

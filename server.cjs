@@ -25,6 +25,8 @@ const fs = require('fs');
 const crypto = require('crypto');
 
 const core = require('./build.cjs');
+const db = require('./storage/database.cjs');
+const { createSigningKey, getSigningKey, hasSigningKey } = require('./storage/signing-key-manager.cjs');
 
 const { scanWebsite } = require('./pwa/scanner.cjs');
 const { generateManifest } = require('./pwa/manifest-generator.cjs');
@@ -36,8 +38,6 @@ const FILES = {
   aab: 'app-release-bundle.aab',
   apk: 'app-release-signed.apk',
   assetlinks: 'assetlinks.json',
-  keystore: 'android.keystore',
-  password: 'keystore-password.txt',
 };
 
 const UUID =
@@ -86,7 +86,7 @@ function createApp({
   buildsDir = path.join(__dirname, 'builds'),
   pwaPackagesDir = path.join(__dirname, 'pwa-packages'),
   allowPrivate = false,
-  maxBuildsPerHour = 5,
+  maxBuildsPerHour = 20,
   maxChecksPerMinute = 30,
   maxRequestsPerMinute = 120,
   jobTtlMs = 60 * 60 * 1000,
@@ -160,9 +160,20 @@ app.use(express.json({
     job.status = 'building';
 
     try {
+      // A project owns one permanent signing identity. Generate it once, then reuse it.
+      if (!hasSigningKey(job.projectId)) {
+        job.log.push('2/6 Creating and securely saving your signing key...');
+        createSigningKey(job.projectId, {
+          websiteUrl: job.options.url,
+          appName: job.options.name,
+        });
+      }
+
+      const signingKey = getSigningKey(job.projectId);
       const result = await buildApp(
         {
           ...job.options,
+          signingKey,
           outDir: path.join(buildsDir, job.id),
           allowPrivate,
         },
@@ -183,6 +194,7 @@ app.use(express.json({
       };
 
       job.status = 'done';
+      db.prepare("UPDATE projects SET status = 'built', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(job.projectId);
     } catch (error) {
       console.error(
         `[job ${job.id}] failed:`,
@@ -190,6 +202,8 @@ app.use(express.json({
       );
 
       job.status = 'failed';
+      db.prepare("UPDATE projects SET status = 'failed', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(job.projectId);
+      await fs.promises.rm(path.join(buildsDir, job.id), { recursive: true, force: true }).catch(() => {});
 
       job.error =
         error instanceof core.BuildError && error.userFacing
@@ -206,6 +220,7 @@ app.use(express.json({
   function publicJob(job) {
     return {
       id: job.id,
+      projectId: job.projectId,
       status: job.status,
       position:
         job.status === 'queued'
@@ -680,69 +695,86 @@ try {
 
     if (body.name !== undefined) {
       options.name = cleanString(body.name, 50);
-
-      if (!options.name) {
-        return res.status(400).json({
-          error: 'The app name must be 1 to 50 characters.',
-        });
-      }
+      if (!options.name) return res.status(400).json({ error: 'The app name must be 1 to 50 characters.' });
     }
 
     if (body.shortName !== undefined) {
-      options.shortName = cleanString(
-        body.shortName,
-        12
-      );
-
-      if (!options.shortName) {
-        return res.status(400).json({
-          error: 'The short name must be 1 to 12 characters.',
-        });
-      }
+      options.shortName = cleanString(body.shortName, 12);
+      if (!options.shortName) return res.status(400).json({ error: 'The short name must be 1 to 12 characters.' });
     }
 
     if (body.packageId !== undefined) {
       if (!core.isValidPackageId(body.packageId)) {
-        return res.status(400).json({
-          error: 'The package ID must look like com.mycompany.myapp (lowercase letters, numbers, underscores).',
-        });
+        return res.status(400).json({ error: 'The package ID must look like com.mycompany.myapp (lowercase letters, numbers, underscores).' });
       }
-
       options.packageId = body.packageId;
     }
 
     if (body.versionCode !== undefined) {
       const versionCode = Number(body.versionCode);
-
-      if (
-        !Number.isInteger(versionCode) ||
-        versionCode < 1 ||
-        versionCode > 2100000000
-      ) {
-        return res.status(400).json({
-          error: 'The version code must be a whole number of 1 or more.',
-        });
+      if (!Number.isInteger(versionCode) || versionCode < 1 || versionCode > 2100000000) {
+        return res.status(400).json({ error: 'The version code must be a whole number of 1 or more.' });
       }
-
       options.versionCode = versionCode;
     }
-
     options.notifications = body.notifications === true;
 
-    if (buildCounter.limited(req.ip)) {
-      return res.status(429).json({
-        error: 'You have reached the hourly build limit. Please try again later.',
-      });
+    const projectId = body.projectId === undefined ? null : body.projectId;
+    if (projectId !== null && (typeof projectId !== 'string' || !UUID.test(projectId))) {
+      return res.status(400).json({ error: 'Invalid project ID. Please start a new project.' });
     }
 
+    const packageName = options.packageId || core.derivePackageId(new URL(url).host);
+    const appName = options.name || new URL(url).host;
+    let project;
+
+    try {
+      if (projectId) {
+        project = db.prepare(`
+          SELECT id, website_url, package_name
+          FROM projects
+          WHERE id = ?
+        `).get(projectId);
+
+        if (!project) {
+          return res.status(404).json({ error: 'Saved project not found. Start a new project.' });
+        }
+        if (new URL(project.website_url).origin !== new URL(url).origin) {
+          return res.status(409).json({ error: 'This saved project belongs to a different website. Start a new project.' });
+        }
+        if (project.package_name && project.package_name !== packageName) {
+          return res.status(409).json({ error: 'The Android package ID cannot change after a signing key is created. Start a new project to use a different package ID.' });
+        }
+        db.prepare(`
+          UPDATE projects
+          SET app_name = ?, config_json = ?, status = 'building', updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(appName, JSON.stringify({ ...options, url }), projectId);
+      } else {
+        const newProjectId = crypto.randomUUID();
+        db.prepare(`
+          INSERT INTO projects (id, website_url, app_name, package_name, status, config_json)
+          VALUES (?, ?, ?, ?, 'created', ?)
+        `).run(newProjectId, url, appName, packageName, JSON.stringify({ ...options, url }));
+        project = { id: newProjectId };
+      }
+    } catch (error) {
+      console.error('[project] persistence failed:', error);
+      return res.status(500).json({ error: 'Could not save this project. Check the local database and encryption configuration.' });
+    }
+
+    if (buildCounter.limited(req.ip)) {
+      return res.status(429).json({ error: 'You have reached the hourly build limit. Please try again later.' });
+    }
     buildCounter.record(req.ip);
 
     const job = {
       id: crypto.randomUUID(),
+      projectId: project.id,
       status: 'queued',
       log: [],
       files: [],
-      options,
+      options: { ...options, packageId: packageName },
       createdAt: Date.now(),
     };
 
@@ -753,6 +785,7 @@ try {
 
     res.status(202).json({
       id: job.id,
+      projectId: job.projectId,
       status: job.status,
     });
   });
