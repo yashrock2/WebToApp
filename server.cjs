@@ -150,13 +150,13 @@ app.use(express.json({
     limit: '7mb',
 }));
 
-// GitHub App integration routes; secrets are read from local environment variables.
-registerGitHubRoutes(app);
-
   app.use(
     '/api',
     rateLimiter(maxRequestsPerMinute, 60 * 1000)
   );
+
+  // GitHub App routes share the API rate limiter.
+  registerGitHubRoutes(app);
 
   const buildCounter = makeCounter(
     maxBuildsPerHour,
