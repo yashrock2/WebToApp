@@ -32,6 +32,7 @@ const { scanWebsite } = require('./pwa/scanner.cjs');
 const { generateManifest } = require('./pwa/manifest-generator.cjs');
 const { generateAppIcons } = require('./pwa/icon-generator.cjs');
 const { generatePwaPackage } = require('./pwa/package-generator.cjs');
+const { registerGitHubRoutes } = require('./integrations/github.cjs');
 
 // Files a user may download. Only these names are ever served.
 const FILES = {
@@ -129,6 +130,9 @@ app.use((req, res, next) => {
 app.use(express.json({
     limit: '7mb',
 }));
+
+// GitHub App integration routes; secrets are read from local environment variables.
+registerGitHubRoutes(app);
 
   app.use(
     '/api',
