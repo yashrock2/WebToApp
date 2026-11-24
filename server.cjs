@@ -24,6 +24,25 @@ const path = require('path');
 const fs = require('fs');
 const crypto = require('crypto');
 
+// Load local development variables without overriding values already supplied by the host.
+function loadLocalEnv() {
+  const envFile = path.join(__dirname, '.env');
+  if (!fs.existsSync(envFile)) return;
+
+  for (const line of fs.readFileSync(envFile, 'utf8').split(/\\r?\\n/)) {
+    const match = line.match(/^\\s*(?:export\\s+)?([A-Za-z_][A-Za-z0-9_]*)\\s*=\\s*(.*?)\\s*$/);
+    if (!match || Object.prototype.hasOwnProperty.call(process.env, match[1])) continue;
+    let value = match[2];
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    } else {
+      value = value.replace(/\\s+#.*$/, '');
+    }
+    process.env[match[1]] = value;
+  }
+}
+loadLocalEnv();
+
 const core = require('./build.cjs');
 const db = require('./storage/database.cjs');
 const { createSigningKey, getSigningKey, hasSigningKey } = require('./storage/signing-key-manager.cjs');
