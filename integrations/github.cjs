@@ -177,8 +177,9 @@ function registerGitHubRoutes(app) {
         expiresAt: Date.now() + SESSION_TTL_MS,
       });
 
+      const secureCookie = process.env.NODE_ENV === 'production' ? '; Secure' : '';
       res.setHeader('Set-Cookie', [
-        `${COOKIE_NAME}=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}`,
+        `${COOKIE_NAME}=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secureCookie}`,
       ]);
       return res.redirect(303, '/');
     } catch (error) {
