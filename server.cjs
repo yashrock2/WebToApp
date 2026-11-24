@@ -147,6 +147,102 @@ app.use(express.json({
 
   let running = false;
 
+  // ----- persistent Android build records -----
+
+  const insertBuildStatement = db.prepare(`
+    INSERT INTO builds (
+      id, project_id, status, options_json, log_json, files_json,
+      result_json, error
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+
+  const updateBuildStatement = db.prepare(`
+    UPDATE builds
+    SET status = ?,
+        options_json = ?,
+        log_json = ?,
+        files_json = ?,
+        result_json = ?,
+        error = ?,
+        updated_at = CURRENT_TIMESTAMP,
+        finished_at = CASE
+          WHEN ? IS NULL THEN finished_at
+          ELSE ?
+        END
+    WHERE id = ?
+  `);
+
+  function persistBuild(job) {
+    try {
+      const finishedAt = job.finishedAt
+        ? new Date(job.finishedAt).toISOString()
+        : null;
+
+      updateBuildStatement.run(
+        job.status,
+        JSON.stringify(job.options || {}),
+        JSON.stringify(job.log || []),
+        JSON.stringify(job.files || []),
+        job.result ? JSON.stringify(job.result) : null,
+        job.error || null,
+        finishedAt,
+        finishedAt,
+        job.id
+      );
+    } catch (error) {
+      console.error(`[job ${job.id}] could not persist build update:`, error.message);
+    }
+  }
+
+  function parseJson(value, fallback) {
+    if (value === null || value === undefined) return fallback;
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+
+  function jobFromDatabase(row) {
+    return {
+      id: row.id,
+      projectId: row.project_id,
+      status: row.status,
+      options: parseJson(row.options_json, {}),
+      log: parseJson(row.log_json, []),
+      files: parseJson(row.files_json, []),
+      result: parseJson(row.result_json, null),
+      error: row.error || undefined,
+      createdAt: row.created_at ? Date.parse(`${row.created_at}Z`) : Date.now(),
+      finishedAt: row.finished_at ? Date.parse(`${row.finished_at}Z`) : null,
+    };
+  }
+
+  // A build interrupted while actively running cannot safely resume Bubblewrap.
+  // Keep its history and mark it failed; queued builds can be restored below.
+  const interruptedBuildMessage =
+    'The server restarted while this build was running. Please start a new build.';
+
+  db.prepare(`
+    UPDATE builds
+    SET status = 'failed',
+        error = ?,
+        finished_at = CURRENT_TIMESTAMP,
+        updated_at = CURRENT_TIMESTAMP
+    WHERE status = 'building'
+  `).run(interruptedBuildMessage);
+
+  db.prepare(`
+    UPDATE projects
+    SET status = 'failed', updated_at = CURRENT_TIMESTAMP
+    WHERE id IN (
+      SELECT project_id
+      FROM builds
+      WHERE status = 'failed' AND error = ?
+    )
+  `).run(interruptedBuildMessage);
+
   // ----- the Android build queue -----
 
   async function pump() {
@@ -158,11 +254,13 @@ app.use(express.json({
 
     running = true;
     job.status = 'building';
+    persistBuild(job);
 
     try {
       // A project owns one permanent signing identity. Generate it once, then reuse it.
       if (!hasSigningKey(job.projectId)) {
         job.log.push('2/6 Creating and securely saving your signing key...');
+        persistBuild(job);
         createSigningKey(job.projectId, {
           websiteUrl: job.options.url,
           appName: job.options.name,
@@ -177,7 +275,10 @@ app.use(express.json({
           outDir: path.join(buildsDir, job.id),
           allowPrivate,
         },
-        (line) => job.log.push(line)
+        (line) => {
+          job.log.push(line);
+          persistBuild(job);
+        }
       );
 
       job.files = Object.keys(FILES).filter((key) =>
@@ -195,6 +296,7 @@ app.use(express.json({
 
       job.status = 'done';
       db.prepare("UPDATE projects SET status = 'built', updated_at = CURRENT_TIMESTAMP WHERE id = ?").run(job.projectId);
+      persistBuild(job);
     } catch (error) {
       console.error(
         `[job ${job.id}] failed:`,
@@ -209,8 +311,10 @@ app.use(express.json({
         error instanceof core.BuildError && error.userFacing
           ? error.message
           : 'The build failed. Please try again later.';
+      persistBuild(job);
     } finally {
       job.finishedAt = Date.now();
+      persistBuild(job);
       running = false;
 
       setImmediate(pump);
@@ -223,7 +327,7 @@ app.use(express.json({
       projectId: job.projectId,
       status: job.status,
       position:
-        job.status === 'queued'
+        job.status === 'queued' && queue.indexOf(job) >= 0
           ? queue.indexOf(job) + 1
           : undefined,
       log: job.log,
@@ -678,6 +782,152 @@ try {
     }
   );
 
+
+  // ----- saved projects and build history -----
+
+  // List saved projects with their latest build summary.
+  app.get('/api/projects', (req, res) => {
+    try {
+      const rows = db.prepare(`
+        SELECT
+          p.id,
+          p.website_url,
+          p.app_name,
+          p.package_name,
+          p.status,
+          p.created_at,
+          p.updated_at,
+          COUNT(b.id) AS build_count,
+          (
+            SELECT b2.id
+            FROM builds b2
+            WHERE b2.project_id = p.id
+            ORDER BY datetime(b2.created_at) DESC, b2.rowid DESC
+            LIMIT 1
+          ) AS latest_build_id,
+          (
+            SELECT b2.status
+            FROM builds b2
+            WHERE b2.project_id = p.id
+            ORDER BY datetime(b2.created_at) DESC, b2.rowid DESC
+            LIMIT 1
+          ) AS latest_build_status,
+          (
+            SELECT b2.created_at
+            FROM builds b2
+            WHERE b2.project_id = p.id
+            ORDER BY datetime(b2.created_at) DESC, b2.rowid DESC
+            LIMIT 1
+          ) AS latest_build_created_at
+        FROM projects p
+        LEFT JOIN builds b ON b.project_id = p.id
+        GROUP BY p.id
+        ORDER BY datetime(p.updated_at) DESC,
+                 datetime(p.created_at) DESC
+      `).all();
+
+      return res.json({
+        projects: rows.map((row) => ({
+          id: row.id,
+          websiteUrl: row.website_url,
+          appName: row.app_name,
+          packageName: row.package_name,
+          status: row.latest_build_status || row.status,
+          buildCount: row.build_count,
+          latestBuild: row.latest_build_id
+            ? {
+                id: row.latest_build_id,
+                status: row.latest_build_status,
+                createdAt: row.latest_build_created_at,
+              }
+            : null,
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+        })),
+      });
+    } catch (error) {
+      console.error('[projects] could not list saved projects:', error);
+      return res.status(500).json({
+        error: 'Could not load saved projects.',
+      });
+    }
+  });
+
+  // Return one project and its complete Android build history.
+  app.get('/api/projects/:id', (req, res) => {
+    const id = req.params.id;
+
+    if (!UUID.test(id)) {
+      return res.status(404).json({
+        error: 'Saved project not found.',
+      });
+    }
+
+    try {
+      const row = db.prepare(`
+        SELECT
+          id,
+          website_url,
+          app_name,
+          package_name,
+          status,
+          config_json,
+          created_at,
+          updated_at
+        FROM projects
+        WHERE id = ?
+      `).get(id);
+
+      if (!row) {
+        return res.status(404).json({
+          error: 'Saved project not found.',
+        });
+      }
+
+      const buildRows = db.prepare(`
+        SELECT *
+        FROM builds
+        WHERE project_id = ?
+        ORDER BY datetime(created_at) DESC, rowid DESC
+      `).all(id);
+
+      const builds = buildRows.map((buildRow) => {
+        const job = jobFromDatabase(buildRow);
+
+        return {
+          ...publicJob(job),
+          createdAt: buildRow.created_at,
+          finishedAt: buildRow.finished_at,
+        };
+      });
+
+      return res.json({
+        project: {
+          id: row.id,
+          websiteUrl: row.website_url,
+          appName: row.app_name,
+          packageName: row.package_name,
+          status: builds[0]?.status || row.status,
+          config: parseJson(row.config_json, {}),
+          createdAt: row.created_at,
+          updatedAt: row.updated_at,
+          buildCount: builds.length,
+        },
+        builds,
+      });
+    } catch (error) {
+      console.error(
+        `[project ${id}] could not load build history:`,
+        error
+      );
+
+      return res.status(500).json({
+        error: 'Could not load this project and its build history.',
+      });
+    }
+  });
+
+
   // ----- existing Android build creation -----
 
   app.post('/api/build', (req, res) => {
@@ -778,6 +1028,24 @@ try {
       createdAt: Date.now(),
     };
 
+    try {
+      insertBuildStatement.run(
+        job.id,
+        job.projectId,
+        job.status,
+        JSON.stringify(job.options),
+        JSON.stringify(job.log),
+        JSON.stringify(job.files),
+        null,
+        null
+      );
+    } catch (error) {
+      console.error('[build] could not create persistent build record:', error);
+      return res.status(500).json({
+        error: 'Could not save this build. Please check the database and try again.',
+      });
+    }
+
     jobs.set(job.id, job);
     queue.push(job);
 
@@ -793,9 +1061,20 @@ try {
   // ----- existing Android build status -----
 
   app.get('/api/build/:id', (req, res) => {
-    const job = UUID.test(req.params.id)
-      ? jobs.get(req.params.id)
-      : null;
+    const id = req.params.id;
+
+    if (!UUID.test(id)) {
+      return res.status(404).json({
+        error: 'Build not found.',
+      });
+    }
+
+    let job = jobs.get(id);
+
+    if (!job) {
+      const row = db.prepare('SELECT * FROM builds WHERE id = ?').get(id);
+      if (row) job = jobFromDatabase(row);
+    }
 
     if (!job) {
       return res.status(404).json({
@@ -803,15 +1082,24 @@ try {
       });
     }
 
-    res.json(publicJob(job));
+    return res.json(publicJob(job));
   });
 
   // ----- existing Android build downloads -----
 
   app.get('/api/build/:id/files/:key', (req, res) => {
-    const job = UUID.test(req.params.id)
-      ? jobs.get(req.params.id)
-      : null;
+    const id = req.params.id;
+
+    if (!UUID.test(id)) {
+      return res.status(404).json({ error: 'File not found.' });
+    }
+
+    let job = jobs.get(id);
+
+    if (!job) {
+      const row = db.prepare('SELECT * FROM builds WHERE id = ?').get(id);
+      if (row) job = jobFromDatabase(row);
+    }
 
     if (!job || job.status !== 'done') {
       return res.status(404).json({
@@ -836,7 +1124,13 @@ try {
       FILES[key]
     );
 
-    res.download(filePath, FILES[key]);
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({
+        error: 'The build record exists, but this download file is no longer available.',
+      });
+    }
+
+    return res.download(filePath, FILES[key]);
   });
 
   // ----- errors -----
@@ -866,7 +1160,38 @@ try {
     });
   });
 
-  // ----- delete expired builds and PWA packages -----
+  // Restore builds that were queued but had not started before the last shutdown.
+  const queuedRows = db.prepare(`
+    SELECT *
+    FROM builds
+    WHERE status = 'queued'
+    ORDER BY created_at ASC
+  `).all();
+
+  for (const row of queuedRows) {
+    const job = jobFromDatabase(row);
+
+    if (!job.options || !job.options.url) {
+      db.prepare(`
+        UPDATE builds
+        SET status = 'failed',
+            error = 'Saved build settings are incomplete. Please start a new build.',
+            finished_at = CURRENT_TIMESTAMP,
+            updated_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+      `).run(job.id);
+      continue;
+    }
+
+    jobs.set(job.id, job);
+    queue.push(job);
+  }
+
+  if (queue.length > 0) {
+    setImmediate(pump);
+  }
+
+  // ----- delete expired build files and PWA packages -----
 
   const cleaner = setInterval(() => {
     const now = Date.now();
@@ -877,6 +1202,13 @@ try {
         now - job.finishedAt > jobTtlMs
       ) {
         jobs.delete(id);
+
+        // Keep the historical build record, but remove expired download links.
+        db.prepare(`
+          UPDATE builds
+          SET files_json = '[]', updated_at = CURRENT_TIMESTAMP
+          WHERE id = ?
+        `).run(id);
 
         fs.rm(
           path.join(buildsDir, id),
