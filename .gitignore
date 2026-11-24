@@ -1,19 +1,40 @@
 # Dependencies
 node_modules/
+**/node_modules/
 
 # Environment variables and secrets
 .env
 .env.*
+!.env.example
+*.pem
+*.key
+*.keystore
+*.jks
 
-# Android builds
+# Local databases and SQLite runtime files
+data/*.sqlite
+data/*.sqlite-*
+*.sqlite
+*.sqlite-*
+*.db
+*.db-wal
+*.db-shm
+
+# Android builds and generated outputs
 builds/
+**/build/
+**/.gradle/
 *.aab
 *.apk
+local.properties
 
 # Generated PWA packages and test outputs
 pwa-packages/
 test-pwa-output/
 test-pwa-package/
+
+# Frontend build output
+frontend/dist/
 
 # Temporary duplicate files
 New folder/
