@@ -187,8 +187,9 @@ function ScannerPage({ navigate }) {
 
 function GitHubSourcePage({ navigate }) {
   const [status, setStatus] = useState(null)
-  const [repositories, setRepositories] = useState([])
+  const [repositoryInput, setRepositoryInput] = useState('')
   const [repository, setRepository] = useState('')
+  const [validatingRepository, setValidatingRepository] = useState(false)
   const [branches, setBranches] = useState([])
   const [branch, setBranch] = useState('')
   const [tree, setTree] = useState(null)
@@ -204,35 +205,15 @@ function GitHubSourcePage({ navigate }) {
   const [preparingBundle, setPreparingBundle] = useState(false)
   const [preparedBundle, setPreparedBundle] = useState(null)
 
-  const loadRepositories = useCallback(async () => {
+  const loadGitHubStatus = useCallback(async () => {
     if (!sessionStorage.getItem('webtoapp:pwaSetup')) { navigate('/setup'); return }
     setLoading(true)
     setError('')
     try {
-      const [connection, result] = await Promise.all([
-        api('/api/integrations/github/status'),
-        api('/api/integrations/github/repositories')
-      ])
-      setStatus(connection)
-      setRepositories(result.repositories || [])
-      // When there is only one repository, it is selected automatically.
-      // Load its branches here as well; setting the select value does not fire onChange.
-      if (result.repositories?.length === 1) {
-        const selectedRepository = result.repositories[0].fullName
-        setRepository(selectedRepository)
-        setLoadingBranches(true)
-        try {
-          const branchResult = await api(`/api/integrations/github/branches?repository=${encodeURIComponent(selectedRepository)}`)
-          setBranches(branchResult.branches || [])
-        } catch (branchError) {
-          setError(branchError.message)
-        } finally {
-          setLoadingBranches(false)
-        }
-      }
+      setStatus(await api('/api/integrations/github/status'))
     } catch (err) {
       setError(err.message)
-      try { setStatus(await api('/api/integrations/github/status')) } catch { /* keep status unavailable */ }
+      setStatus(null)
     } finally {
       setLoading(false)
     }
@@ -248,7 +229,31 @@ function GitHubSourcePage({ navigate }) {
       }
     } catch { /* no prior website scan */ }
   }, [])
-  useEffect(() => { loadRepositories() }, [loadRepositories])
+  useEffect(() => { loadGitHubStatus() }, [loadGitHubStatus])
+
+  const validateRepository = async () => {
+    setError('')
+    setRepository('')
+    setBranches([])
+    setBranch('')
+    setTree(null)
+    setSourceFiles([])
+    setProjectAnalysis(null)
+    setPreparedBundle(null)
+    const value = repositoryInput.trim()
+    if (!value) return setError('Paste your GitHub repository link.')
+    setValidatingRepository(true)
+    try {
+      const result = await api('/api/integrations/github/repository/validate', { repository: value })
+      setRepository(result.repository.fullName)
+      setRepositoryInput(result.repository.htmlUrl || value)
+      await loadBranches(result.repository.fullName)
+    } catch (err) {
+      setError(err.message || 'Could not validate this GitHub repository.')
+    } finally {
+      setValidatingRepository(false)
+    }
+  }
 
   const loadBranches = async (fullName) => {
     setRepository(fullName)
@@ -379,16 +384,14 @@ function GitHubSourcePage({ navigate }) {
       <header className="github-intro"><h1>Your code.<br/><span className="headline-accent">One workspace.</span></h1><p className="lede">Choose a repository and branch. WebToApp will inspect the source structure without changing any files.</p></header>
       <section className="workflow-card github-card">
         <div className="panel-heading"><div><h2>GitHub connection</h2><p>Read-only repository inspection for this stage.</p></div><span className="ready-pill"><span/>{status?.connected ? 'Connected' : 'Checking'}</span></div>
-        {status?.connected ? <div className="github-account"><span className="github-avatar">GH</span><span><strong>{status.account}</strong><small>GitHub account connected · Installation {status.installationId}</small></span></div> : <div className="github-connect"><p>{loading ? 'Checking your GitHub session…' : 'Connect your GitHub account to browse your repositories.'}</p><a className="btn primary" href="/api/integrations/github/authorize">Connect GitHub →</a></div>}
+        {status?.connected ? <div className="github-account"><span className="github-avatar">GH</span><span><strong>{status.account}</strong><small>GitHub account connected · Installation {status.installationId}</small></span></div> : <div className="github-connect"><p>{loading ? 'Checking your GitHub session…' : 'Connect your GitHub account to browse your repositories.'}</p><a className="btn primary" href="/api/integrations/github/install">Connect GitHub →</a></div>}
         {error && <p className="msg bad" role="alert">{error}</p>}
         {status?.connected && <>
           <div className="github-field">
-            <label htmlFor="github-repository">1. Select repository</label>
-            <select id="github-repository" value={repository} onChange={e => loadBranches(e.target.value)} disabled={loading || repositories.length === 0}>
-              <option value="">Choose a repository</option>
-              {repositories.map(repo => <option value={repo.fullName} key={repo.id}>{repo.fullName}{repo.private ? ' · Private' : ' · Public'}</option>)}
-            </select>
-            <p className="hint">{repositories.length} accessible {repositories.length === 1 ? 'repository' : 'repositories'} found.</p>
+            <label htmlFor="github-repository">1. GitHub repository link</label>
+            <input id="github-repository" type="url" placeholder="https://github.com/owner/repository" value={repositoryInput} onChange={e => { setRepositoryInput(e.target.value); setRepository(''); setBranches([]); setBranch(''); setTree(null) }} onKeyDown={e => { if (e.key === 'Enter') validateRepository() }} disabled={validatingRepository} />
+            <p className="hint">Paste the repository URL from GitHub. Private repositories work when your connected GitHub App has access.</p>
+            <button className="btn primary" type="button" onClick={validateRepository} disabled={validatingRepository || !repositoryInput.trim()}>{validatingRepository ? 'Verifying repository…' : 'Verify repository →'}</button>
           </div>
           {repository && <div className="github-field">
             <label htmlFor="github-branch">2. Select branch</label>
@@ -465,7 +468,7 @@ function GitHubSourcePage({ navigate }) {
 
         <p className="hint">Repository tree and selected text configuration files are read-only. No customer files are changed.</p>
       </section>}
-      <div className="github-back"><button className="btn secondary" type="button" onClick={() => navigate('/')}>← Back to website check</button><button className="link" type="button" onClick={loadRepositories}>Refresh repositories</button></div>
+      <div className="github-back"><button className="btn secondary" type="button" onClick={() => navigate('/')}>← Back to website check</button><button className="link" type="button" onClick={loadGitHubStatus}>Refresh GitHub connection</button></div>
     </main>
   </div></>
 }
