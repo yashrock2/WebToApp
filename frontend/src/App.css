@@ -3802,3 +3802,13 @@ input[aria-invalid='true'] {
 .github-integration-guidance { margin-top: 14px; padding: 12px; border-radius: 8px; background: rgba(255,255,255,.035); color: var(--text); font-size: 11px; }
 .github-integration-guidance p { margin: 6px 0 0; color: var(--muted); line-height: 1.5; }
 @media (max-width: 640px) { .github-prepare-grid { grid-template-columns: 1fr; } .github-prepare-grid label.wide { grid-column: auto; } .github-bundle-file { align-items: flex-start; flex-direction: column; } }
+
+.pwa-choice-card { margin-top: 26px; }
+.pwa-choice-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 16px; margin-top: 22px; }
+.pwa-choice-option { display: flex; flex-direction: column; align-items: flex-start; min-width: 0; padding: 22px; border: 1px solid var(--border); border-radius: 14px; background: rgba(255,255,255,.025); }
+.pwa-choice-icon { display: grid; place-items: center; width: 46px; height: 46px; margin-bottom: 14px; border: 1px solid var(--border-strong); border-radius: 12px; color: var(--accent); font-size: 21px; font-weight: 700; }
+.pwa-choice-option h3 { margin: 0; color: var(--text); font: 600 18px var(--display); }
+.pwa-choice-option p { margin: 9px 0 12px; color: var(--muted); font-size: 13px; line-height: 1.65; }
+.pwa-choice-option ul { margin: 0 0 20px; padding-left: 18px; color: var(--muted); font-size: 12px; line-height: 1.9; }
+.pwa-choice-option .btn { margin-top: auto; }
+@media (max-width: 720px) { .pwa-choice-grid { grid-template-columns: 1fr; } .pwa-choice-option { padding: 18px; } }
