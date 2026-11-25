@@ -285,7 +285,25 @@ function GitHubSourcePage({ navigate }) {
         'src/main.ts',
         'src/App.jsx',
         'src/App.tsx',
-        'app/layout.tsx'
+        'app/layout.tsx',
+        'frontend/package.json',
+        'frontend/index.html',
+        'frontend/vite.config.js',
+        'frontend/vite.config.ts',
+        'frontend/next.config.js',
+        'frontend/next.config.mjs',
+        'frontend/next.config.ts',
+        'frontend/angular.json',
+        'frontend/nuxt.config.js',
+        'frontend/nuxt.config.ts',
+        'frontend/public/index.html',
+        'frontend/src/main.jsx',
+        'frontend/src/main.tsx',
+        'frontend/src/main.js',
+        'frontend/src/main.ts',
+        'frontend/src/App.jsx',
+        'frontend/src/App.tsx',
+        'frontend/app/layout.tsx'
       ]
       const paths = preferredPaths.filter(path => availablePaths.has(path)).slice(0, 10)
       if (paths.length === 0) {
