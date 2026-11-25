@@ -50,7 +50,7 @@ const { createSigningKey, getSigningKey, hasSigningKey } = require('./storage/si
 const { scanWebsite } = require('./pwa/scanner.cjs');
 const { generateManifest } = require('./pwa/manifest-generator.cjs');
 const { generateAppIcons } = require('./pwa/icon-generator.cjs');
-const { generatePwaPackage } = require('./pwa/package-generator.cjs');
+const { generatePwaPackage, createPwaFileBundle } = require('./pwa/package-generator.cjs');
 const { registerGitHubRoutes } = require('./integrations/github.cjs');
 
 // Files a user may download. Only these names are ever served.
@@ -695,6 +695,98 @@ try {
           error: record.error,
           code: error.code || 'PWA_PACKAGE_FAILED',
         });
+      }
+    }
+  );
+
+  // ----- reusable PWA file bundle for source integrations -----
+
+  app.post(
+    '/api/pwa/file-bundle',
+    rateLimiter(maxChecksPerMinute, 60 * 1000),
+    async (req, res) => {
+      const body = req.body || {};
+      const url = cleanString(body.url, 2048);
+      if (!url) return res.status(400).json({ error: 'Please enter a website address.' });
+
+      let websiteUrl;
+      try {
+        websiteUrl = validateWebsiteUrl(url);
+      } catch (error) {
+        return res.status(400).json({ error: error.message });
+      }
+      if (websiteUrl.protocol !== 'https:') {
+        return res.status(422).json({ error: 'Your website must use HTTPS before preparing a production PWA package.', code: 'HTTPS_REQUIRED' });
+      }
+
+      const settings = body.settings === undefined ? {} : body.settings;
+      if (!isPlainObject(settings)) {
+        return res.status(400).json({ error: 'PWA settings must be a valid object.' });
+      }
+      if (body.includeServiceWorker !== undefined && typeof body.includeServiceWorker !== 'boolean') {
+        return res.status(400).json({ error: 'includeServiceWorker must be true or false.' });
+      }
+
+      let uploadedIconBuffer;
+      try {
+        uploadedIconBuffer = decodeUploadedIcon(body.iconBase64);
+      } catch (error) {
+        return res.status(400).json({ error: error.message, code: 'INVALID_LOGO' });
+      }
+
+      const id = crypto.randomUUID();
+      const workDirectory = path.join(pwaPackagesDir, `bundle-${id}`);
+      try {
+        await fs.promises.mkdir(workDirectory, { recursive: true });
+        const scanResult = await scanWebsite(websiteUrl.href, { allowPrivate });
+        if (!scanResult || scanResult.ok === false || scanResult.status === 'needs_https' || scanResult.checks?.https?.passed === false) {
+          const error = new Error('The website must pass a successful HTTPS scan before preparing PWA files.');
+          error.statusCode = 422;
+          throw error;
+        }
+
+        const iconResult = await generateAppIcons({
+          siteUrl: websiteUrl.href,
+          scanResult,
+          outputDir: workDirectory,
+          uploadedIconBuffer,
+          allowPrivate,
+        });
+        const manifestResult = generateManifest({
+          siteUrl: websiteUrl.href,
+          website: scanResult.website || {},
+          settings,
+          icons: iconResult.icons,
+        });
+        const bundle = await createPwaFileBundle({
+          manifestResult,
+          iconResult,
+          includeServiceWorker: body.includeServiceWorker === true,
+        });
+
+        return res.status(201).json({
+          success: true,
+          siteUrl: websiteUrl.href,
+          files: bundle.map(file => ({
+            path: file.path,
+            contentType: file.contentType,
+            sizeBytes: file.content.length,
+            contentBase64: file.content.toString('base64'),
+          })),
+          notes: [
+            'These are generated file contents from the same manifest and icon generators used by the manual ZIP workflow.',
+            'No customer repository files have been read, written, or changed by this endpoint.',
+            'Existing files must be reviewed for conflicts before a future Pull Request is created.',
+          ],
+        });
+      } catch (error) {
+        console.error('[pwa file bundle] failed:', error.message);
+        return res.status(error.statusCode || 422).json({
+          error: error.message || 'Could not prepare PWA files.',
+          code: error.code || 'PWA_BUNDLE_FAILED',
+        });
+      } finally {
+        await fs.promises.rm(workDirectory, { recursive: true, force: true }).catch(() => {});
       }
     }
   );
