@@ -304,13 +304,20 @@ function registerGitHubRoutes(app) {
       throw error;
     }
 
-    const result = await githubRequest(
-      `${API_ROOT}/installation/repositories?per_page=100&page=1`,
-      { token: session.token }
-    );
-    const repository = (result.repositories || []).find(
-      (repo) => repo.full_name.toLowerCase() === fullName.toLowerCase()
-    );
+    let repository = null;
+    // GitHub installations can grant access to more than 100 repositories.
+    // Search every available page (up to GitHub's practical pagination limit)
+    // so a valid repository is not incorrectly rejected just because of its position.
+    for (let page = 1; page <= 100; page++) {
+      const result = await githubRequest(
+        `${API_ROOT}/installation/repositories?per_page=100&page=${page}`,
+        { token: session.token }
+      );
+      repository = (result.repositories || []).find(
+        (repo) => repo.full_name.toLowerCase() === fullName.toLowerCase()
+      ) || null;
+      if (repository || (result.repositories || []).length < 100) break;
+    }
     if (!repository) {
       const error = new Error('This repository is not available to the connected GitHub App installation.');
       error.statusCode = 403;
@@ -339,7 +346,7 @@ function registerGitHubRoutes(app) {
         if (parts.length !== 2) {
           return res.status(400).json({ error: 'Paste the repository homepage URL, for example https://github.com/owner/repository.' });
         }
-        fullName = parts.join('/');
+        fullName = parts.join('/').replace(/\\.git$/i, '');
       }
       if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) {
         return res.status(400).json({ error: 'Use a repository in owner/repository format.' });
