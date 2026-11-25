@@ -260,6 +260,49 @@ function GitHubSourcePage({ navigate }) {
     finally { setLoadingTree(false) }
   }
 
+  const readProjectFiles = async () => {
+    if (!repository || !branch || !tree) return
+    setLoadingFiles(true)
+    setError('')
+    setSourceFiles([])
+    try {
+      const availablePaths = new Set((tree.entries || []).filter(item => item.type === 'blob').map(item => item.path))
+      const preferredPaths = [
+        'package.json',
+        'index.html',
+        'vite.config.js',
+        'vite.config.ts',
+        'next.config.js',
+        'next.config.mjs',
+        'next.config.ts',
+        'angular.json',
+        'nuxt.config.js',
+        'nuxt.config.ts',
+        'public/index.html',
+        'src/main.jsx',
+        'src/main.tsx',
+        'src/main.js',
+        'src/main.ts',
+        'src/App.jsx',
+        'src/App.tsx',
+        'app/layout.tsx'
+      ]
+      const paths = preferredPaths.filter(path => availablePaths.has(path)).slice(0, 10)
+      if (paths.length === 0) {
+        throw new Error('No supported project configuration files were found in the inspected repository tree.')
+      }
+      const results = await Promise.all(paths.map(async path => {
+        const params = new URLSearchParams({ repository, branch, path })
+        return api(`/api/integrations/github/file?${params.toString()}`)
+      }))
+      setSourceFiles(results)
+    } catch (err) {
+      setError(err.message || 'Could not read project configuration files.')
+    } finally {
+      setLoadingFiles(false)
+    }
+  }
+
   const folders = useMemo(() => (tree?.entries || []).filter(item => item.type === 'tree'), [tree])
   const files = useMemo(() => (tree?.entries || []).filter(item => item.type === 'blob'), [tree])
 
