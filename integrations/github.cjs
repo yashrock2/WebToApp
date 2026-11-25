@@ -319,6 +319,57 @@ function registerGitHubRoutes(app) {
     return repository;
   }
 
+  app.post('/api/integrations/github/repository/validate', async (req, res) => {
+    const session = currentSession(req);
+    if (!session) return res.status(401).json({ error: 'Connect your GitHub account first.' });
+
+    const raw = typeof req.body?.repository === 'string' ? req.body.repository.trim() : '';
+    if (!raw || raw.length > 2048) {
+      return res.status(400).json({ error: 'Paste a valid GitHub repository URL.' });
+    }
+
+    let fullName = raw;
+    try {
+      if (/^https?:\/\//i.test(raw)) {
+        const url = new URL(raw);
+        if (url.hostname.toLowerCase() !== 'github.com' || url.protocol !== 'https:' || url.username || url.password) {
+          return res.status(400).json({ error: 'Use a GitHub repository link from https://github.com.' });
+        }
+        const parts = url.pathname.split('/').filter(Boolean);
+        if (parts.length !== 2) {
+          return res.status(400).json({ error: 'Paste the repository homepage URL, for example https://github.com/owner/repository.' });
+        }
+        fullName = parts.join('/');
+      }
+      if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) {
+        return res.status(400).json({ error: 'Use a repository in owner/repository format.' });
+      }
+
+      const repository = await getAuthorizedRepository(session, fullName);
+      return res.json({
+        success: true,
+        repository: {
+          id: repository.id,
+          name: repository.name,
+          fullName: repository.full_name,
+          private: repository.private,
+          defaultBranch: repository.default_branch,
+          htmlUrl: repository.html_url,
+          permissions: repository.permissions
+            ? { contents: repository.permissions.contents, pullRequests: repository.permissions.pull_requests }
+            : undefined,
+        },
+      });
+    } catch (error) {
+      console.error('[github repository validation]', error.message);
+      return res.status(error.statusCode || 502).json({
+        error: error.statusCode === 403
+          ? 'This repository is not accessible to your connected WebToApp GitHub App. Install the app on the repository owner account and grant it access, then try again.'
+          : error.message,
+      });
+    }
+  });
+
   app.get('/api/integrations/github/branches', async (req, res) => {
     const session = currentSession(req);
     if (!session) return res.status(401).json({ error: 'Connect your GitHub account first.' });
