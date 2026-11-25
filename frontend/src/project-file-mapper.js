@@ -1,4 +1,4 @@
-const normalize = value => String(value || '').replace(/\\/g, '/').replace(/^\\/+|\\/+$/g, '');
+const normalize = value => String(value || '').replace(/\\/g, '/').split('/').filter(Boolean).join('/');
 const basename = value => normalize(value).split('/').pop() || '';
 
 function mapPwaBundleToProject({ bundle = [], profile = {}, entries = [] } = {}) {
