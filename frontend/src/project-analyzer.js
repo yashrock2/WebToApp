@@ -6,8 +6,8 @@ const FRAMEWORKS = [
   { id: 'svelte', label: 'Svelte', packages: ['svelte'], configs: ['svelte.config.js', 'svelte.config.ts'] },
   { id: 'astro', label: 'Astro', packages: ['astro'], configs: ['astro.config.js', 'astro.config.mjs', 'astro.config.ts'] },
   { id: 'gatsby', label: 'Gatsby', packages: ['gatsby'], configs: ['gatsby-config.js', 'gatsby-config.ts'] },
-  { id: 'vue', label: 'Vue', packages: ['vue'], configs: ['vite.config.js', 'vite.config.ts', 'vue.config.js'] },
-  { id: 'react', label: 'React', packages: ['react'], configs: ['vite.config.js', 'vite.config.ts'] },
+  { id: 'vue', label: 'Vue', packages: ['vue'], configs: ['vue.config.js'] },
+  { id: 'react', label: 'React', packages: ['react'], configs: [] },
 ];
 const cleanPath = value => String(value || '').replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
 const dirname = value => { const p = cleanPath(value); const i = p.lastIndexOf('/'); return i < 0 ? '' : p.slice(0, i); };
@@ -50,18 +50,25 @@ function analyzeProject({ entries = [], files = [] } = {}) {
   const dependencies = Object.assign({}, selected?.pkg?.dependencies, selected?.pkg?.devDependencies, selected?.pkg?.peerDependencies);
   let framework = 'Static HTML / unknown';
   let frameworkId = 'static';
-  for (const item of FRAMEWORKS) {
-    if (item.packages.some(name => Object.prototype.hasOwnProperty.call(dependencies, name)) ||
-        item.configs.some(name => entryPaths.has(join(root, name)))) {
-      framework = item.label;
-      frameworkId = item.id;
-      const vite = entryPaths.has(join(root, 'vite.config.js')) || entryPaths.has(join(root, 'vite.config.ts'));
-      if (vite && ['react', 'vue', 'svelte'].includes(item.id)) framework = item.label + ' + Vite';
-      break;
-    }
+  // Prefer explicit package dependencies over generic build-tool config files.
+  // Vite is framework-agnostic: its presence alone must never imply Vue or React.
+  const packageMatch = FRAMEWORKS.find(item =>
+    item.packages.some(name => Object.prototype.hasOwnProperty.call(dependencies, name))
+  );
+  const configMatch = FRAMEWORKS.find(item =>
+    item.configs.some(name => entryPaths.has(join(root, name)))
+  );
+  const detected = packageMatch || configMatch;
+  if (detected) {
+    frameworkId = detected.id;
+    framework = detected.label;
+    const vite = entryPaths.has(join(root, 'vite.config.js')) || entryPaths.has(join(root, 'vite.config.ts')) || entryPaths.has(join(root, 'vite.config.mjs'));
+    if (vite && ['react', 'vue', 'svelte'].includes(frameworkId)) framework += ' + Vite';
+  } else if (selected?.pkg && selected.pkg.name) {
+    framework = 'JavaScript project (framework not identified)';
+  } else if (!selected && entryPaths.has('index.html')) {
+    framework = 'Static HTML';
   }
-  if (selected?.pkg && !Object.keys(dependencies).length && selected.pkg.name) framework = 'JavaScript project (framework not identified)';
-  if (!selected && entryPaths.has('index.html')) framework = 'Static HTML';
 
   const hasPath = path => entryPaths.has(cleanPath(path));
   const hasDirectory = path => entries.some(item => item.type === 'tree' && cleanPath(item.path) === cleanPath(path)) ||
