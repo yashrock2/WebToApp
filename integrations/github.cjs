@@ -515,10 +515,10 @@ function registerGitHubRoutes(app) {
         if (Array.isArray(file) || file.type !== 'file' || typeof file.content !== 'string') {
           throw new Error(`The selected path is not a readable file: ${filePath}`);
         }
-        const buffer = Buffer.from(file.content.replace(/\\n/g, ''), 'base64');
+        const buffer = Buffer.from(file.content.replace(/\n/g, ''), 'base64');
         if (buffer.length > 256 * 1024) throw new Error(`File exceeds the 256 KB limit: ${filePath}`);
         const content = buffer.toString('utf8');
-        if (content.includes('\\u0000')) throw new Error(`Binary files cannot be read: ${filePath}`);
+        if (content.includes('\u0000')) throw new Error(`Binary files cannot be read: ${filePath}`);
         return { repository: repository.full_name, branch: branchName, path: file.path, size: buffer.length, sha: file.sha, content };
       }));
       return res.json({ files: results });
