@@ -38,17 +38,28 @@ function createAppJwt() {
 }
 
 async function githubRequest(url, { token, method = 'GET', body } = {}) {
-  const response = await fetch(url, {
-    method,
-    headers: {
-      Accept: 'application/vnd.github+json',
-      'X-GitHub-Api-Version': '2022-11-28',
-      'User-Agent': 'WebToApp-GitHub-Integration',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers: {
+        Accept: 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+        'User-Agent': 'WebToApp-GitHub-Integration',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+        ...(body ? { 'Content-Type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+  } catch (cause) {
+    const endpoint = new URL(url).pathname;
+    const detail = cause?.cause?.code || cause?.code || cause?.cause?.message || cause?.message || 'unknown network error';
+    console.error('[github request network failure]', method, endpoint, detail);
+    const error = new Error(`GitHub network request failed at ${endpoint}: ${detail}`);
+    error.statusCode = 502;
+    error.cause = cause;
+    throw error;
+  }
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
@@ -506,7 +517,8 @@ function registerGitHubRoutes(app) {
         return res.status(404).json({ error: 'The selected branch could not be found.' });
       }
 
-      const results = await Promise.all(paths.map(async filePath => {
+      const results = [];
+      for (const filePath of paths) {
         const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
         const file = await githubRequest(
           `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(branchName)}`,
@@ -519,8 +531,8 @@ function registerGitHubRoutes(app) {
         if (buffer.length > 256 * 1024) throw new Error(`File exceeds the 256 KB limit: ${filePath}`);
         const content = buffer.toString('utf8');
         if (content.includes('\u0000')) throw new Error(`Binary files cannot be read: ${filePath}`);
-        return { repository: repository.full_name, branch: branchName, path: file.path, size: buffer.length, sha: file.sha, content };
-      }));
+        results.push({ repository: repository.full_name, branch: branchName, path: file.path, size: buffer.length, sha: file.sha, content });
+      }
       return res.json({ files: results });
     } catch (error) {
       console.error('[github files]', error.message);
