@@ -3670,3 +3670,44 @@ input[aria-invalid='true'] {
   .github-connect { align-items: flex-start; flex-direction: column; }
   .github-back { align-items: flex-start; flex-direction: column; }
 }
+
+
+.github-source-content {
+  margin-top: 18px;
+}
+.github-source-file {
+  border-bottom: 1px solid rgba(164,188,215,.08);
+}
+.github-source-file:last-child {
+  border-bottom: 0;
+}
+.github-source-file summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 11px 14px;
+  cursor: pointer;
+  color: #b7d9d4;
+}
+.github-source-file summary code {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 11px;
+}
+.github-source-file summary span {
+  flex: 0 0 auto;
+  color: var(--muted);
+  font-size: 10px;
+}
+.github-source-file pre {
+  max-height: 360px;
+  overflow: auto;
+  margin: 0;
+  padding: 14px;
+  border-top: 1px solid var(--border);
+  background: rgba(0,0,0,.22);
+  color: #d6e2ee;
+  font: 11px/1.55 var(--mono);
+  white-space: pre;
+}
