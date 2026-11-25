@@ -308,7 +308,12 @@ function GitHubSourcePage({ navigate }) {
         'frontend/src/App.tsx',
         'frontend/app/layout.tsx'
       ]
-      const paths = preferredPaths.filter(path => availablePaths.has(path)).slice(0, 10)
+      const discoveredPwaPaths = (tree.entries || [])
+        .filter(item => item.type === 'blob' && /(^|\/)(?:manifest\.webmanifest|manifest\.json|service-worker\.[jt]s|sw\.[jt]s)$/i.test(item.path))
+        .map(item => item.path)
+      const paths = [...new Set([...preferredPaths, ...discoveredPwaPaths])]
+        .filter(path => availablePaths.has(path))
+        .slice(0, 10)
       if (paths.length === 0) {
         throw new Error('No supported project configuration files were found in the inspected repository tree.')
       }
@@ -355,7 +360,7 @@ function GitHubSourcePage({ navigate }) {
       </section>
       {tree && <section className="workflow-card github-results" aria-live="polite">
         <div className="github-result-heading"><div><span className="step-kicker">SOURCE INSPECTION COMPLETE</span><h2>{tree.repository}</h2><p>Branch: <code>{tree.branch}</code> · Commit: <code>{tree.commitSha?.slice(0, 10)}</code></p></div><span className="ready-pill"><span/> Read-only</span></div>
-        <div className="github-summary-grid"><div><small>Detected technology</small><strong>{tree.framework}</strong></div><div><small>Repository entries</small><strong>{tree.totalEntries}</strong></div><div><small>Folders</small><strong>{folders.length}</strong></div><div><small>Files</small><strong>{files.length}</strong></div></div>
+        <div className="github-summary-grid"><div><small>Detected technology</small><strong>{projectAnalysis?.profile.framework || tree.framework}</strong></div><div><small>Repository entries</small><strong>{tree.totalEntries}</strong></div><div><small>Folders</small><strong>{folders.length}</strong></div><div><small>Files</small><strong>{files.length}</strong></div></div>
         {tree.truncated && <p className="note">GitHub returned a large repository tree. Showing the first {tree.entries.length} entries.</p>}
         <div className="github-inspect-action">
           <button className="btn primary" type="button" onClick={readProjectFiles} disabled={loadingFiles}>
