@@ -409,6 +409,27 @@ function GitHubSourcePage({ navigate }) {
           </button>
           <span className="footer-note">Read-only · Sensitive files and binary assets are excluded</span>
         </div>
+        {projectAnalysis && <section className="github-prepare-panel">
+          <div className="github-analysis-heading"><div><span className="step-kicker">NEXT · FILE PREPARATION</span><h3>Generate PWA files for this project</h3></div><span className="analysis-status">No repository changes</span></div>
+          <p className="hint">Uses the same WebToApp manifest and icon generators as the manual ZIP workflow. Files are only mapped for review; nothing is committed or overwritten.</p>
+          <div className="github-prepare-grid">
+            <label>Website URL<input type="url" placeholder="https://example.com" value={bundleForm.url} onChange={e => setBundleForm(old => ({ ...old, url: e.target.value }))}/></label>
+            <label>App name<input maxLength="50" value={bundleForm.name} onChange={e => setBundleForm(old => ({ ...old, name: e.target.value }))} placeholder="My App"/></label>
+            <label>Short name<input maxLength="12" value={bundleForm.shortName} onChange={e => setBundleForm(old => ({ ...old, shortName: e.target.value }))} placeholder="MyApp"/></label>
+            <label>Display mode<select value={bundleForm.display} onChange={e => setBundleForm(old => ({ ...old, display: e.target.value }))}><option value="standalone">Standalone</option><option value="fullscreen">Fullscreen</option><option value="minimal-ui">Minimal UI</option><option value="browser">Browser</option></select></label>
+            <label className="wide">Description<input maxLength="300" value={bundleForm.description} onChange={e => setBundleForm(old => ({ ...old, description: e.target.value }))} placeholder="Describe your app"/></label>
+            <label>Theme colour<input type="color" value={bundleForm.themeColor} onChange={e => setBundleForm(old => ({ ...old, themeColor: e.target.value }))}/></label>
+            <label>Background colour<input type="color" value={bundleForm.backgroundColor} onChange={e => setBundleForm(old => ({ ...old, backgroundColor: e.target.value }))}/></label>
+            <label className="wide">App logo (PNG, JPEG or WebP · up to 5 MB)<input type="file" accept="image/png,image/jpeg,image/webp" onChange={e => setBundleLogo(e.target.files?.[0] || null)}/></label>
+          </div>
+          <button className="btn primary" type="button" onClick={preparePwaFiles} disabled={preparingBundle}>{preparingBundle ? "Generating PWA files…" : "Generate and map PWA files →"}</button>
+          {preparedBundle?.mapping && <div className="github-bundle-result" aria-live="polite">
+            <h4>Proposed repository file mapping</h4><p className="hint">Target public directory: <code>{preparedBundle.mapping.publicDirectory}/</code></p>
+            {preparedBundle.mapping.files.map(file => <div className="github-bundle-file" key={file.targetPath}><div><strong><code>{file.targetPath}</code></strong><small>{Math.ceil(file.sizeBytes / 1024)} KB · {file.contentType}</small></div><span className={file.conflict ? "analysis-label missing" : "analysis-label found"}>{file.conflict ? "Review existing file" : "New file"}</span></div>)}
+            <div className="github-integration-guidance"><strong>HTML integration point</strong><p>{preparedBundle.mapping.integration.file || "Not identified"}</p><p>{preparedBundle.mapping.integration.instruction}</p></div>
+            <p className="hint">Generated payloads are held only in this page memory. No GitHub branch or Pull Request has been created.</p>
+          </div>}
+        </section>}
         {projectAnalysis && <section className="github-analysis-panel" aria-live="polite">
           <div className="github-analysis-heading">
             <div><span className="step-kicker">PROJECT ANALYSIS</span><h3>Project structure & PWA compatibility</h3></div>
