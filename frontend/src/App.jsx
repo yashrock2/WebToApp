@@ -205,7 +205,21 @@ function GitHubSourcePage({ navigate }) {
       ])
       setStatus(connection)
       setRepositories(result.repositories || [])
-      if (result.repositories?.length === 1) setRepository(result.repositories[0].fullName)
+      // When there is only one repository, it is selected automatically.
+      // Load its branches here as well; setting the select value does not fire onChange.
+      if (result.repositories?.length === 1) {
+        const selectedRepository = result.repositories[0].fullName
+        setRepository(selectedRepository)
+        setLoadingBranches(true)
+        try {
+          const branchResult = await api(`/api/integrations/github/branches?repository=${encodeURIComponent(selectedRepository)}`)
+          setBranches(branchResult.branches || [])
+        } catch (branchError) {
+          setError(branchError.message)
+        } finally {
+          setLoadingBranches(false)
+        }
+      }
     } catch (err) {
       setError(err.message)
       try { setStatus(await api('/api/integrations/github/status')) } catch { /* keep status unavailable */ }
