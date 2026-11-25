@@ -359,7 +359,6 @@ function GitHubSourcePage({ navigate }) {
           </button>
           <span className="footer-note">Read-only · Sensitive files and binary assets are excluded</span>
         </div>
-        <div className="github-file-list"><h3>Repository structure</h3>{tree.entries.map((entry, index) => <div className="github-file-row" key={entry.path}><span className="github-file-kind">{entry.type === 'tree' ? '▰' : '◇'}</span><code>{entry.path}</code><span>{entry.type === 'tree' ? 'Folder' : entry.size ? `${Math.ceil(entry.size / 1024)} KB` : 'File'}</span></div>)}</div>
         {sourceFiles.length > 0 && <div className="github-file-list github-source-content">
           <h3>Source files read ({sourceFiles.length})</h3>
           {sourceFiles.map(file => <details className="github-source-file" key={file.path}>
@@ -367,6 +366,8 @@ function GitHubSourcePage({ navigate }) {
             <pre>{file.content}</pre>
           </details>)}
         </div>}
+        <div className="github-file-list"><h3>Repository structure</h3>{tree.entries.map((entry, index) => <div className="github-file-row" key={entry.path}><span className="github-file-kind">{entry.type === 'tree' ? '▰' : '◇'}</span><code>{entry.path}</code><span>{entry.type === 'tree' ? 'Folder' : entry.size ? `${Math.ceil(entry.size / 1024)} KB` : 'File'}</span></div>)}</div>
+
         <p className="hint">Repository tree and selected text configuration files are read-only. No customer files are changed.</p>
       </section>}
       <div className="github-back"><button className="btn secondary" type="button" onClick={() => navigate('/')}>← Back to website check</button><button className="link" type="button" onClick={loadRepositories}>Refresh repositories</button></div>
