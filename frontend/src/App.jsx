@@ -309,11 +309,8 @@ function GitHubSourcePage({ navigate }) {
       if (paths.length === 0) {
         throw new Error('No supported project configuration files were found in the inspected repository tree.')
       }
-      const results = await Promise.all(paths.map(async path => {
-        const params = new URLSearchParams({ repository, branch, path })
-        return api(`/api/integrations/github/file?${params.toString()}`)
-      }))
-      setSourceFiles(results)
+      const result = await api('/api/integrations/github/files', { repository, branch, paths })
+      setSourceFiles(result.files || [])
     } catch (err) {
       setError(err.message || 'Could not read project configuration files.')
     } finally {
