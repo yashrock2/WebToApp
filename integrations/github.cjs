@@ -284,6 +284,121 @@ function registerGitHubRoutes(app) {
     }
   });
 
+
+  async function getAuthorizedRepository(session, fullName) {
+    if (typeof fullName !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) {
+      const error = new Error('Choose a valid repository.');
+      error.statusCode = 400;
+      throw error;
+    }
+
+    const result = await githubRequest(
+      `${API_ROOT}/installation/repositories?per_page=100&page=1`,
+      { token: session.token }
+    );
+    const repository = (result.repositories || []).find(
+      (repo) => repo.full_name.toLowerCase() === fullName.toLowerCase()
+    );
+    if (!repository) {
+      const error = new Error('This repository is not available to the connected GitHub App installation.');
+      error.statusCode = 403;
+      throw error;
+    }
+    return repository;
+  }
+
+  app.get('/api/integrations/github/branches', async (req, res) => {
+    const session = currentSession(req);
+    if (!session) return res.status(401).json({ error: 'Connect your GitHub account first.' });
+
+    try {
+      const repository = await getAuthorizedRepository(session, req.query.repository);
+      const [owner, repo] = repository.full_name.split('/');
+      const result = await githubRequest(
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100`,
+        { token: session.token }
+      );
+      return res.json({
+        repository: repository.full_name,
+        branches: (result || []).map((branch) => ({
+          name: branch.name,
+          commitSha: branch.commit?.sha || null,
+        })),
+      });
+    } catch (error) {
+      console.error('[github branches]', error.message);
+      return res.status(error.statusCode || 502).json({ error: error.message });
+    }
+  });
+
+  app.get('/api/integrations/github/tree', async (req, res) => {
+    const session = currentSession(req);
+    if (!session) return res.status(401).json({ error: 'Connect your GitHub account first.' });
+
+    const branchName = typeof req.query.branch === 'string' ? req.query.branch : '';
+    if (!branchName || branchName.length > 255) {
+      return res.status(400).json({ error: 'Choose a valid branch.' });
+    }
+
+    try {
+      const repository = await getAuthorizedRepository(session, req.query.repository);
+      const [owner, repo] = repository.full_name.split('/');
+      const branches = await githubRequest(
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100`,
+        { token: session.token }
+      );
+      const branch = (branches || []).find((item) => item.name === branchName);
+      if (!branch?.commit?.commit?.tree?.sha) {
+        const error = new Error('The selected branch could not be found.');
+        error.statusCode = 404;
+        throw error;
+      }
+
+      const tree = await githubRequest(
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${branch.commit.commit.tree.sha}?recursive=1`,
+        { token: session.token }
+      );
+      const entries = (tree.tree || []).slice(0, 1500).map((entry) => ({
+        path: entry.path,
+        type: entry.type,
+        size: entry.size || 0,
+      }));
+
+      const rootFiles = new Set(entries.filter((entry) => entry.type === 'blob' && !entry.path.includes('/')).map((entry) => entry.path));
+      const packageJson = entries.some((entry) => entry.type === 'blob' && entry.path === 'package.json');
+      const framework = rootFiles.has('next.config.js') || rootFiles.has('next.config.mjs') || rootFiles.has('next.config.ts')
+        ? 'Next.js'
+        : rootFiles.has('vite.config.js') || rootFiles.has('vite.config.ts')
+          ? 'Vite'
+          : rootFiles.has('angular.json')
+            ? 'Angular'
+            : rootFiles.has('nuxt.config.js') || rootFiles.has('nuxt.config.ts')
+              ? 'Nuxt'
+              : rootFiles.has('gatsby-config.js')
+                ? 'Gatsby'
+                : rootFiles.has('manage.py')
+                  ? 'Django'
+                  : packageJson
+                    ? 'JavaScript project (framework not yet identified)'
+                    : rootFiles.has('index.html')
+                      ? 'Static HTML'
+                      : 'Not identified';
+
+      return res.json({
+        repository: repository.full_name,
+        branch: branchName,
+        commitSha: branch.commit.sha,
+        framework,
+        totalEntries: (tree.tree || []).length,
+        truncated: Boolean(tree.truncated) || (tree.tree || []).length > entries.length,
+        entries,
+      });
+    } catch (error) {
+      console.error('[github tree]', error.message);
+      return res.status(error.statusCode || 502).json({ error: error.message });
+    }
+  });
+
   app.post('/api/integrations/github/disconnect', (req, res) => {
     const id = readCookie(req, COOKIE_NAME);
     if (id) sessions.delete(id);
