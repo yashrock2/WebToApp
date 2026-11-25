@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
 import { analyzeProject } from './project-analyzer.js'
+import { mapPwaBundleToProject } from './project-file-mapper.js'
 
 const DEFAULT_THEME = '#17243A'
 const PACKAGE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
@@ -198,6 +199,10 @@ function GitHubSourcePage({ navigate }) {
   const [sourceFiles, setSourceFiles] = useState([])
   const [loadingFiles, setLoadingFiles] = useState(false)
   const [projectAnalysis, setProjectAnalysis] = useState(null)
+  const [bundleForm, setBundleForm] = useState({ url: '', name: '', shortName: '', description: '', themeColor: '#17243A', backgroundColor: '#ffffff', display: 'standalone' })
+  const [bundleLogo, setBundleLogo] = useState(null)
+  const [preparingBundle, setPreparingBundle] = useState(false)
+  const [preparedBundle, setPreparedBundle] = useState(null)
 
   const loadRepositories = useCallback(async () => {
     setLoading(true)
@@ -232,6 +237,16 @@ function GitHubSourcePage({ navigate }) {
     }
   }, [])
 
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem('webtoapp:pwaSetup') || 'null')
+      if (saved?.url) {
+        const site = saved.scan?.website || {}
+        const detected = site.appName || site.title || new URL(saved.url).hostname
+        setBundleForm(old => ({ ...old, url: saved.url, name: detected.slice(0, 50), shortName: detected.slice(0, 12), description: detected + ' application' }))
+      }
+    } catch { /* no prior website scan */ }
+  }, [])
   useEffect(() => { loadRepositories() }, [loadRepositories])
 
   const loadBranches = async (fullName) => {
