@@ -6,6 +6,7 @@ const fs = require('fs');
 const API_ROOT = 'https://api.github.com';
 const COOKIE_NAME = 'webtoapp_github';
 const SESSION_TTL_MS = 60 * 60 * 1000;
+const STATE_TTL_MS = 10 * 60 * 1000;
 
 function requiredEnv(name) {
   const value = process.env[name];
@@ -97,9 +98,13 @@ function readCookie(req, name) {
 
 function registerGitHubRoutes(app) {
   const sessions = new Map();
+  const pendingStates = new Map();
 
   function pruneExpired() {
     const now = Date.now();
+    for (const [state, createdAt] of pendingStates) {
+      if (now - createdAt > STATE_TTL_MS) pendingStates.delete(state);
+    }
     for (const [id, session] of sessions) {
       if (session.expiresAt <= now) sessions.delete(id);
     }
@@ -140,8 +145,27 @@ function registerGitHubRoutes(app) {
     }
   });
 
+  // Existing installations can authorize directly with an OAuth state value.
+  // New installations may arrive through GitHub's automatic OAuth-on-install flow.
+  app.get('/api/integrations/github/authorize', (req, res) => {
+    try {
+      const clientId = requiredEnv('GITHUB_CLIENT_ID');
+      const callbackUrl = requiredEnv('GITHUB_CALLBACK_URL');
+      const state = crypto.randomBytes(32).toString('hex');
+      pruneExpired();
+      pendingStates.set(state, Date.now());
+      const target = new URL('https://github.com/login/oauth/authorize');
+      target.searchParams.set('client_id', clientId);
+      target.searchParams.set('redirect_uri', callbackUrl);
+      target.searchParams.set('state', state);
+      return res.redirect(302, target.toString());
+    } catch (error) {
+      return res.status(error.statusCode || 500).json({ error: error.message });
+    }
+  });
+
   app.get('/api/integrations/github/callback', async (req, res) => {
-    const { code, error: oauthError, error_description: oauthErrorDescription } = req.query || {};
+    const { code, state, error: oauthError, error_description: oauthErrorDescription } = req.query || {};
 
     if (oauthError) {
       return res.status(400).send(
@@ -151,6 +175,17 @@ function registerGitHubRoutes(app) {
 
     if (typeof code !== 'string' || !code.trim()) {
       return res.status(400).send('GitHub did not return an authorization code. Start again from WebToApp.');
+    }
+
+    // Validate state whenever WebToApp initiated the OAuth flow itself.
+    // GitHub's automatic OAuth-on-install callback may omit state.
+    if (state !== undefined) {
+      pruneExpired();
+      const createdAt = typeof state === 'string' ? pendingStates.get(state) : null;
+      if (!createdAt || Date.now() - createdAt > STATE_TTL_MS) {
+        return res.status(400).send('GitHub authorization expired or could not be verified. Start again from WebToApp.');
+      }
+      pendingStates.delete(state);
     }
 
     try {
