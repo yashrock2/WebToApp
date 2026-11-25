@@ -342,6 +342,32 @@ function GitHubSourcePage({ navigate }) {
     }
   }
 
+  const preparePwaFiles = async () => {
+    setError('')
+    setPreparedBundle(null)
+    if (!projectAnalysis || !tree) return
+    if (!bundleForm.url.trim()) return setError('Enter the HTTPS website URL that belongs to this repository.')
+    if (!bundleForm.name.trim() || !bundleForm.shortName.trim()) return setError('Enter an app name and short name.')
+    if (!bundleLogo) return setError('Upload the app logo to generate the PWA icons.')
+    if (!['image/png', 'image/jpeg', 'image/webp'].includes(bundleLogo.type) || bundleLogo.size > 5 * 1024 * 1024) return setError('Use a PNG, JPEG or WebP logo up to 5 MB.')
+    setPreparingBundle(true)
+    try {
+      const iconBase64 = await new Promise((resolve, reject) => {
+        const reader = new FileReader()
+        reader.onload = () => resolve(String(reader.result || ''))
+        reader.onerror = () => reject(new Error('Could not read the selected logo.'))
+        reader.readAsDataURL(bundleLogo)
+      })
+      const result = await api('/api/pwa/file-bundle', {
+        url: bundleForm.url.trim(),
+        settings: { name: bundleForm.name.trim(), shortName: bundleForm.shortName.trim(), description: bundleForm.description.trim(), display: bundleForm.display, themeColor: bundleForm.themeColor, backgroundColor: bundleForm.backgroundColor },
+        iconBase64
+      })
+      const mapping = mapPwaBundleToProject({ bundle: result.files || [], profile: projectAnalysis.profile, entries: tree.entries || [] })
+      setPreparedBundle({ ...result, mapping })
+    } catch (err) { setError(err.message || 'Could not prepare PWA files.') }
+    finally { setPreparingBundle(false) }
+  }
   const folders = useMemo(() => (tree?.entries || []).filter(item => item.type === 'tree'), [tree])
   const files = useMemo(() => (tree?.entries || []).filter(item => item.type === 'blob'), [tree])
 
