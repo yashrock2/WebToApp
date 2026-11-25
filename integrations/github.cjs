@@ -476,6 +476,58 @@ function registerGitHubRoutes(app) {
     }
   });
 
+  app.post('/api/integrations/github/files', async (req, res) => {
+    const session = currentSession(req);
+    if (!session) return res.status(401).json({ error: 'Connect your GitHub account first.' });
+
+    const branchName = typeof req.body?.branch === 'string' ? req.body.branch : '';
+    const paths = Array.isArray(req.body?.paths) ? req.body.paths : [];
+    if (!branchName || branchName.length > 255 || paths.length < 1 || paths.length > 10 ||
+        paths.some(filePath => typeof filePath !== 'string' || filePath.length > 500 ||
+          filePath.startsWith('/') || filePath.split('/').some(part => !part || part === '.' || part === '..'))) {
+      return res.status(400).json({ error: 'Choose a valid branch and between 1 and 10 project file paths.' });
+    }
+
+    const blockedPath = /(^|\/)(?:\.git|node_modules|vendor|dist|build|coverage|\.next|\.venv|venv|secrets?)(\/|$)/i;
+    const blockedFile = /(^|\/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|jks|keystore)|id_rsa|credentials?(?:\.json)?|secrets?(?:\.json)?)$/i;
+    const allowedText = /\.(?:json|html?|[cm]?js|jsx|tsx?|css|scss|sass|less|vue|svelte|md|ya?ml|toml|xml|txt|webmanifest|config)$/i;
+    if (paths.some(filePath => blockedPath.test(filePath) || blockedFile.test(filePath) || !allowedText.test(filePath))) {
+      return res.status(403).json({ error: 'One or more requested files are not available for source inspection.' });
+    }
+
+    try {
+      const repository = await getAuthorizedRepository(session, req.body.repository);
+      const [owner, repo] = repository.full_name.split('/');
+      const branches = await githubRequest(
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100`,
+        { token: session.token }
+      );
+      if (!(branches || []).some(item => item.name === branchName)) {
+        return res.status(404).json({ error: 'The selected branch could not be found.' });
+      }
+
+      const results = await Promise.all(paths.map(async filePath => {
+        const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+        const file = await githubRequest(
+          `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(branchName)}`,
+          { token: session.token }
+        );
+        if (Array.isArray(file) || file.type !== 'file' || typeof file.content !== 'string') {
+          throw new Error(`The selected path is not a readable file: ${filePath}`);
+        }
+        const buffer = Buffer.from(file.content.replace(/\\n/g, ''), 'base64');
+        if (buffer.length > 256 * 1024) throw new Error(`File exceeds the 256 KB limit: ${filePath}`);
+        const content = buffer.toString('utf8');
+        if (content.includes('\\u0000')) throw new Error(`Binary files cannot be read: ${filePath}`);
+        return { repository: repository.full_name, branch: branchName, path: file.path, size: buffer.length, sha: file.sha, content };
+      }));
+      return res.json({ files: results });
+    } catch (error) {
+      console.error('[github files]', error.message);
+      return res.status(error.statusCode || 502).json({ error: error.message });
+    }
+  });
+
   app.post('/api/integrations/github/disconnect', (req, res) => {
     const id = readCookie(req, COOKIE_NAME);
     if (id) sessions.delete(id);
