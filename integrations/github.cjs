@@ -415,6 +415,67 @@ function registerGitHubRoutes(app) {
     }
   });
 
+
+  app.get('/api/integrations/github/file', async (req, res) => {
+    const session = currentSession(req);
+    if (!session) return res.status(401).json({ error: 'Connect your GitHub account first.' });
+
+    const branchName = typeof req.query.branch === 'string' ? req.query.branch : '';
+    const filePath = typeof req.query.path === 'string' ? req.query.path : '';
+    if (!branchName || branchName.length > 255 || !filePath || filePath.length > 500 ||
+        filePath.startsWith('/') || filePath.split('/').some(part => !part || part === '.' || part === '..')) {
+      return res.status(400).json({ error: 'Choose a valid branch and repository file path.' });
+    }
+
+    const blockedPath = /(^|\/)(?:\.git|node_modules|vendor|dist|build|coverage|\.next|\.venv|venv|secrets?)(\/|$)/i;
+    const blockedFile = /(^|\/)(?:\.env(?:\..*)?|.*\.(?:pem|key|p12|pfx|jks|keystore)|id_rsa|credentials?(?:\.json)?|secrets?(?:\.json)?)$/i;
+    const allowedText = /\.(?:json|html?|[cm]?js|jsx|tsx?|css|scss|sass|less|vue|svelte|md|ya?ml|toml|xml|txt|webmanifest|config)$/i;
+    if (blockedPath.test(filePath) || blockedFile.test(filePath) || !allowedText.test(filePath)) {
+      return res.status(403).json({ error: 'This file type or path is not available for source inspection.' });
+    }
+
+    try {
+      const repository = await getAuthorizedRepository(session, req.query.repository);
+      const [owner, repo] = repository.full_name.split('/');
+      const branches = await githubRequest(
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches?per_page=100`,
+        { token: session.token }
+      );
+      if (!(branches || []).some(item => item.name === branchName)) {
+        return res.status(404).json({ error: 'The selected branch could not be found.' });
+      }
+
+      const encodedPath = filePath.split('/').map(encodeURIComponent).join('/');
+      const file = await githubRequest(
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${encodedPath}?ref=${encodeURIComponent(branchName)}`,
+        { token: session.token }
+      );
+      if (Array.isArray(file) || file.type !== 'file' || typeof file.content !== 'string') {
+        return res.status(400).json({ error: 'The selected path is not a readable file.' });
+      }
+      const buffer = Buffer.from(file.content.replace(/\n/g, ''), 'base64');
+      if (buffer.length > 256 * 1024) {
+        return res.status(413).json({ error: 'This file exceeds the 256 KB source inspection limit.' });
+      }
+      const textContent = buffer.toString('utf8');
+      if (textContent.includes('\u0000')) {
+        return res.status(415).json({ error: 'Binary files cannot be read as source text.' });
+      }
+
+      return res.json({
+        repository: repository.full_name,
+        branch: branchName,
+        path: file.path,
+        size: buffer.length,
+        sha: file.sha,
+        content: textContent,
+      });
+    } catch (error) {
+      console.error('[github file]', error.message);
+      return res.status(error.statusCode || 502).json({ error: error.message });
+    }
+  });
+
   app.post('/api/integrations/github/disconnect', (req, res) => {
     const id = readCookie(req, COOKIE_NAME);
     if (id) sessions.delete(id);
