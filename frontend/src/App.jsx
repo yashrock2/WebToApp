@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import './App.css'
+import { analyzeProject } from './project-analyzer.js'
 
 const DEFAULT_THEME = '#17243A'
 const PACKAGE_RE = /^[a-z][a-z0-9_]*(\.[a-z][a-z0-9_]*)+$/
@@ -196,6 +197,7 @@ function GitHubSourcePage({ navigate }) {
   const [loadingTree, setLoadingTree] = useState(false)
   const [sourceFiles, setSourceFiles] = useState([])
   const [loadingFiles, setLoadingFiles] = useState(false)
+  const [projectAnalysis, setProjectAnalysis] = useState(null)
 
   const loadRepositories = useCallback(async () => {
     setLoading(true)
@@ -265,6 +267,7 @@ function GitHubSourcePage({ navigate }) {
     setLoadingFiles(true)
     setError('')
     setSourceFiles([])
+    setProjectAnalysis(null)
     try {
       const availablePaths = new Set((tree.entries || []).filter(item => item.type === 'blob').map(item => item.path))
       const preferredPaths = [
@@ -311,6 +314,7 @@ function GitHubSourcePage({ navigate }) {
       }
       const result = await api('/api/integrations/github/files', { repository, branch, paths })
       setSourceFiles(result.files || [])
+      setProjectAnalysis(analyzeProject({ entries: tree.entries || [], files: result.files || [] }))
     } catch (err) {
       setError(err.message || 'Could not read project configuration files.')
     } finally {
@@ -359,6 +363,29 @@ function GitHubSourcePage({ navigate }) {
           </button>
           <span className="footer-note">Read-only · Sensitive files and binary assets are excluded</span>
         </div>
+        {projectAnalysis && <section className="github-analysis-panel" aria-live="polite">
+          <div className="github-analysis-heading">
+            <div><span className="step-kicker">PROJECT ANALYSIS</span><h3>Project structure & PWA compatibility</h3></div>
+            <span className={projectAnalysis.blockers.length ? 'analysis-status needs-work' : 'analysis-status ready'}>{projectAnalysis.readiness}</span>
+          </div>
+          <div className="github-profile-grid">
+            <div><small>Detected framework</small><strong>{projectAnalysis.profile.framework}</strong></div>
+            <div><small>Application root</small><strong><code>{projectAnalysis.profile.appRoot}</code></strong></div>
+            <div><small>HTML / app entry</small><strong><code>{projectAnalysis.profile.htmlEntry}</code></strong></div>
+            <div><small>Public asset directory</small><strong><code>{projectAnalysis.profile.publicDirectory}</code></strong></div>
+            {projectAnalysis.profile.packageName && <div><small>Package</small><strong>{projectAnalysis.profile.packageName}</strong></div>}
+            {projectAnalysis.profile.buildCommand && <div><small>Build command</small><strong><code>{projectAnalysis.profile.buildCommand}</code></strong></div>}
+          </div>
+          <h4>PWA checks</h4>
+          <div className="github-analysis-checks">
+            {projectAnalysis.checks.map(check => <div className="github-analysis-check" key={check.id}>
+              <span className={'analysis-dot ' + check.status}></span>
+              <div><strong>{check.label}</strong><p>{check.detail}</p></div>
+              <span className={'analysis-label ' + check.status}>{check.status === 'found' ? 'Found' : check.status === 'missing' ? 'Missing' : check.status === 'optional' ? 'Optional' : 'Recommended'}</span>
+            </div>)}
+          </div>
+          {projectAnalysis.notes.map(note => <p className="hint github-analysis-note" key={note}>{note}</p>)}
+        </section>}
         {sourceFiles.length > 0 && <div className="github-file-list github-source-content">
           <h3>Source files read ({sourceFiles.length})</h3>
           {sourceFiles.map(file => <details className="github-source-file" key={file.path}>
