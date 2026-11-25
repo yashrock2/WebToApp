@@ -338,13 +338,13 @@ function GitHubSourcePage({ navigate }) {
         <div className="github-result-heading"><div><span className="step-kicker">SOURCE INSPECTION COMPLETE</span><h2>{tree.repository}</h2><p>Branch: <code>{tree.branch}</code> · Commit: <code>{tree.commitSha?.slice(0, 10)}</code></p></div><span className="ready-pill"><span/> Read-only</span></div>
         <div className="github-summary-grid"><div><small>Detected technology</small><strong>{tree.framework}</strong></div><div><small>Repository entries</small><strong>{tree.totalEntries}</strong></div><div><small>Folders</small><strong>{folders.length}</strong></div><div><small>Files</small><strong>{files.length}</strong></div></div>
         {tree.truncated && <p className="note">GitHub returned a large repository tree. Showing the first {tree.entries.length} entries.</p>}
-        <div className="github-file-list"><h3>Repository structure</h3>{tree.entries.map((entry, index) => <div className="github-file-row" key={entry.path}><span className="github-file-kind">{entry.type === 'tree' ? '▰' : '◇'}</span><code>{entry.path}</code><span>{entry.type === 'tree' ? 'Folder' : entry.size ? `${Math.ceil(entry.size / 1024)} KB` : 'File'}</span></div>)}</div>
         <div className="github-inspect-action">
           <button className="btn primary" type="button" onClick={readProjectFiles} disabled={loadingFiles}>
             {loadingFiles ? 'Reading project files…' : 'Read project configuration →'}
           </button>
           <span className="footer-note">Read-only · Sensitive files and binary assets are excluded</span>
         </div>
+        <div className="github-file-list"><h3>Repository structure</h3>{tree.entries.map((entry, index) => <div className="github-file-row" key={entry.path}><span className="github-file-kind">{entry.type === 'tree' ? '▰' : '◇'}</span><code>{entry.path}</code><span>{entry.type === 'tree' ? 'Folder' : entry.size ? `${Math.ceil(entry.size / 1024)} KB` : 'File'}</span></div>)}</div>
         {sourceFiles.length > 0 && <div className="github-file-list github-source-content">
           <h3>Source files read ({sourceFiles.length})</h3>
           {sourceFiles.map(file => <details className="github-source-file" key={file.path}>
