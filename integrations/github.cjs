@@ -6,7 +6,6 @@ const fs = require('fs');
 const API_ROOT = 'https://api.github.com';
 const COOKIE_NAME = 'webtoapp_github';
 const SESSION_TTL_MS = 60 * 60 * 1000;
-const STATE_TTL_MS = 10 * 60 * 1000;
 
 function requiredEnv(name) {
   const value = process.env[name];
@@ -52,15 +51,36 @@ async function githubRequest(url, { token, method = 'GET', body } = {}) {
 
   const data = await response.json().catch(() => ({}));
   if (!response.ok) {
-    const error = new Error(
-      response.status === 401 || response.status === 403
-        ? 'GitHub authorization failed. Reconnect the GitHub App and check its permissions.'
-        : 'GitHub could not complete the requested operation.'
-    );
+    const detail = typeof data.message === 'string' ? data.message : 'Unknown GitHub API error';
+    const error = new Error(`GitHub API request failed (${response.status}): ${detail}`);
     error.statusCode = response.status === 404 ? 404 : 502;
     throw error;
   }
   return data;
+}
+
+async function exchangeOAuthCode(code) {
+  const response = await fetch('https://github.com/login/oauth/access_token', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+      'Content-Type': 'application/json',
+      'User-Agent': 'WebToApp-GitHub-Integration',
+    },
+    body: JSON.stringify({
+      client_id: requiredEnv('GITHUB_CLIENT_ID'),
+      client_secret: requiredEnv('GITHUB_CLIENT_SECRET'),
+      code,
+    }),
+  });
+
+  const data = await response.json().catch(() => ({}));
+  if (!response.ok || !data.access_token) {
+    const error = new Error(data.error_description || data.error || 'GitHub did not issue an OAuth access token.');
+    error.statusCode = 502;
+    throw error;
+  }
+  return data.access_token;
 }
 
 function readCookie(req, name) {
@@ -76,14 +96,10 @@ function readCookie(req, name) {
 }
 
 function registerGitHubRoutes(app) {
-  const pendingStates = new Map();
   const sessions = new Map();
 
   function pruneExpired() {
     const now = Date.now();
-    for (const [state, createdAt] of pendingStates) {
-      if (now - createdAt > STATE_TTL_MS) pendingStates.delete(state);
-    }
     for (const [id, session] of sessions) {
       if (session.expiresAt <= now) sessions.delete(id);
     }
@@ -106,67 +122,72 @@ function registerGitHubRoutes(app) {
     });
   });
 
+  // With "Request user authorization (OAuth) during installation" enabled,
+  // GitHub installs the App first and then starts OAuth. The callback receives
+  // an OAuth code; it does not reliably include installation_id or state.
+  // We identify the installation using the authenticated GitHub username and
+  // the App JWT, then verify the installation account before minting a token.
   app.get('/api/integrations/github/install', (req, res) => {
     try {
       const slug = requiredEnv('GITHUB_APP_SLUG');
       requiredEnv('GITHUB_CLIENT_ID');
-      const state = crypto.randomBytes(32).toString('hex');
-      pruneExpired();
-      pendingStates.set(state, Date.now());
-      const target = new URL(`https://github.com/apps/${encodeURIComponent(slug)}/installations/new`);
-      target.searchParams.set('state', state);
-      return res.redirect(302, target.toString());
+      return res.redirect(
+        302,
+        `https://github.com/apps/${encodeURIComponent(slug)}/installations/new`
+      );
     } catch (error) {
       return res.status(error.statusCode || 500).json({ error: error.message });
     }
   });
 
   app.get('/api/integrations/github/callback', async (req, res) => {
-    const { code, state, installation_id: installationId } = req.query || {};
-    if (
-      typeof code !== 'string' ||
-      typeof state !== 'string' ||
-      typeof installationId !== 'string' ||
-      !/^\d+$/.test(installationId)
-    ) {
-      return res.status(400).send('GitHub did not return a valid installation authorization.');
+    const { code, error: oauthError, error_description: oauthErrorDescription } = req.query || {};
+
+    if (oauthError) {
+      return res.status(400).send(
+        `GitHub authorization was not completed: ${String(oauthErrorDescription || oauthError)}`
+      );
     }
 
-    pruneExpired();
-    const createdAt = pendingStates.get(state);
-    pendingStates.delete(state);
-    if (!createdAt || Date.now() - createdAt > STATE_TTL_MS) {
-      return res.status(400).send('GitHub authorization expired or the state could not be verified. Start again from WebToApp.');
+    if (typeof code !== 'string' || !code.trim()) {
+      return res.status(400).send('GitHub did not return an authorization code. Start again from WebToApp.');
     }
 
     try {
-      const clientId = requiredEnv('GITHUB_CLIENT_ID');
-      const clientSecret = requiredEnv('GITHUB_CLIENT_SECRET');
-      const tokenResponse = await githubRequest('https://github.com/login/oauth/access_token', {
-        method: 'POST',
-        body: { client_id: clientId, client_secret: clientSecret, code },
+      // Exchange the one-time OAuth code and use the resulting identity to
+      // discover this GitHub App's installation for that exact account.
+      const userAccessToken = await exchangeOAuthCode(code);
+      const user = await githubRequest(`${API_ROOT}/user`, {
+        token: userAccessToken,
       });
-      if (!tokenResponse.access_token) {
-        return res.status(502).send('GitHub did not issue an authorization token. Please reconnect.');
+
+      if (!user.login) {
+        throw new Error('GitHub did not return an account username.');
       }
 
-      const user = await githubRequest(`${API_ROOT}/user`, {
-        token: tokenResponse.access_token,
-      });
+      const appId = requiredEnv('GITHUB_APP_ID');
       const appJwt = createAppJwt();
-
-      // Confirm that the installation belongs to this GitHub App before minting a token.
       const installation = await githubRequest(
-        `${API_ROOT}/app/installations/${installationId}`,
+        `${API_ROOT}/users/${encodeURIComponent(user.login)}/installation`,
         { token: appJwt }
       );
+
+      if (
+        !installation.id ||
+        !installation.account ||
+        String(installation.account.login || '').toLowerCase() !== user.login.toLowerCase() ||
+        String(installation.app_id) !== String(appId)
+      ) {
+        throw new Error('No matching WebToApp Integration installation was found for this GitHub account. Install the app on this account and try again.');
+      }
+
       const installationToken = await githubRequest(
-        `${API_ROOT}/app/installations/${installationId}/access_tokens`,
+        `${API_ROOT}/app/installations/${installation.id}/access_tokens`,
         { token: appJwt, method: 'POST', body: {} }
       );
 
       if (!installationToken.token) {
-        throw new Error('GitHub did not issue an installation token.');
+        throw new Error('GitHub did not issue an installation access token.');
       }
 
       const sessionId = crypto.randomBytes(32).toString('hex');
@@ -185,7 +206,7 @@ function registerGitHubRoutes(app) {
     } catch (error) {
       console.error('[github callback]', error.message);
       return res.status(error.statusCode || 502).send(
-        'GitHub connection could not be completed. Check the local WebToApp server configuration and try again.'
+        'GitHub connection could not be completed. Check that the GitHub App is installed on the same account you authorized, then try again.'
       );
     }
   });
@@ -224,7 +245,7 @@ function registerGitHubRoutes(app) {
       });
     } catch (error) {
       console.error('[github repositories]', error.message);
-      return res.status(error.statusCode || 502).json({ error: error.message });
+      return res.status(error.statusCode || 502).json({ error: 'Could not load GitHub repositories. Please reconnect the GitHub App.' });
     }
   });
 
