@@ -49,8 +49,8 @@ function useRoute() {
 function Brand({ onHome }) {
   return <a className="brand" href="/" onClick={e => { e.preventDefault(); onHome() }} aria-label="WebToApp home"><span className="brand-mark" aria-hidden="true"><span/><span/><span/><span/></span><span>webto<span className="brand-accent">app</span></span></a>
 }
-function Topbar({ onHome, setup = false }) {
-  return <nav className="topbar" aria-label="Main navigation"><Brand onHome={onHome}/><div className="topbar-right"><span className="secure-label"><span className="secure-dot"/> Secure build workspace</span>{setup ? <a className="top-link" href="/" onClick={e => { e.preventDefault(); onHome() }}>Back to website check</a> : <a className="top-link" href="#how-it-works">How it works</a>}</div></nav>
+function Topbar({ onHome, setup = false, onGitHub }) {
+  return <nav className="topbar" aria-label="Main navigation"><Brand onHome={onHome}/><div className="topbar-right"><span className="secure-label"><span className="secure-dot"/> Secure build workspace</span><a className="top-link" href="/github" onClick={e => { e.preventDefault(); onGitHub?.() }}>GitHub source</a>{setup ? <a className="top-link" href="/" onClick={e => { e.preventDefault(); onHome() }}>Back to website check</a> : <a className="top-link" href="#how-it-works">How it works</a>}</div></nav>
 }
 function PhonePreview({ state, host, name, theme, progress }) {
   const style = { '--pv-theme': theme || DEFAULT_THEME, '--pv-on': foregroundFor(theme || DEFAULT_THEME), '--progress': `${progress || 0}%` }
@@ -182,6 +182,111 @@ function ScannerPage({ navigate }) {
   {buildResult&&<section className="block result-panel"><div className="success-banner"><span className="success-icon">✓</span><span>BUILD COMPLETE</span></div><h2>Your Android app is ready.</h2><p className="result-lede">Your app bundle has been generated. Download your files and follow the setup steps below to prepare for Google Play.</p>{buildResult.aab&&<a className="btn primary download-button" href={buildResult.aab.url} download={buildResult.aab.name}>↓ Download app bundle <span>.AAB</span></a>}<p className="hint">This is the Android App Bundle file requested by Google Play Console.</p><div className="next-steps"><div className="section-rule"><span>YOUR NEXT STEPS</span><span className="rule-line"/></div><ol className="next"><li><span className="next-number">01</span><div><strong>Publish the verification file</strong><p>Host <code>assetlinks.json</code> at this address on your website:</p><span className="copyline"><code>{`https://${buildResult.host}/.well-known/assetlinks.json`}</code><button className="link" onClick={()=>copyText('url',`https://${buildResult.host}/.well-known/assetlinks.json`)}>{copyState.url||'Copy address'}</button></span><p className="step-explain">This verifies your website and helps remove the browser bar from your app.</p></div></li><li><span className="next-number">02</span><div><strong>Upload your AAB to Play Console</strong><p>Create your app in Google Play Console, then upload the downloaded bundle to a testing or production track.</p></div></li><li><span className="next-number">03</span><div><strong>Add your Play App Signing fingerprint</strong><p>After your first upload, find the app signing key in Play Console → App integrity and add its fingerprint to <code>assetlinks.json</code>, alongside this one:</p><span className="copyline"><code className="fp">{buildResult.fingerprint}</code><button className="link" onClick={()=>copyText('fp',buildResult.fingerprint)}>{copyState.fp||'Copy fingerprint'}</button></span></div></li></ol></div><div className="other-files-panel"><h3>Build files</h3><ul className="files">{buildResult.files.map(f=><li key={f.key}><a href={f.url} download={f.name}>{f.key==='assetlinks'?'assetlinks.json':'Test app (.apk)'}</a></li>)}</ul></div><p className="note">Keep your signing key and its password in a safe place. You need them to publish future updates. Files on this server are deleted after one hour.</p><button className="btn secondary again-button" onClick={resetAll}>Create another app</button></section>}
   </div></section><PhonePreview {...phone}/></main><HowItWorks/><footer className="page-footer"><span>Built for the open web.</span><span>WebToApp <span className="footer-separator">·</span> Website to Android</span></footer></div></>
 }
+
+function GitHubSourcePage({ navigate }) {
+  const [status, setStatus] = useState(null)
+  const [repositories, setRepositories] = useState([])
+  const [repository, setRepository] = useState('')
+  const [branches, setBranches] = useState([])
+  const [branch, setBranch] = useState('')
+  const [tree, setTree] = useState(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [loadingBranches, setLoadingBranches] = useState(false)
+  const [loadingTree, setLoadingTree] = useState(false)
+
+  const loadRepositories = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [connection, result] = await Promise.all([
+        api('/api/integrations/github/status'),
+        api('/api/integrations/github/repositories')
+      ])
+      setStatus(connection)
+      setRepositories(result.repositories || [])
+      if (result.repositories?.length === 1) setRepository(result.repositories[0].fullName)
+    } catch (err) {
+      setError(err.message)
+      try { setStatus(await api('/api/integrations/github/status')) } catch { /* keep status unavailable */ }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => { loadRepositories() }, [loadRepositories])
+
+  const loadBranches = async (fullName) => {
+    setRepository(fullName)
+    setBranches([])
+    setBranch('')
+    setTree(null)
+    setError('')
+    if (!fullName) return
+    setLoadingBranches(true)
+    try {
+      const result = await api(`/api/integrations/github/branches?repository=${encodeURIComponent(fullName)}`)
+      setBranches(result.branches || [])
+      if (result.branches?.length === 1) setBranch(result.branches[0].name)
+    } catch (err) { setError(err.message) }
+    finally { setLoadingBranches(false) }
+  }
+
+  const inspectSource = async () => {
+    if (!repository || !branch) return
+    setLoadingTree(true)
+    setError('')
+    setTree(null)
+    try {
+      const result = await api(`/api/integrations/github/tree?repository=${encodeURIComponent(repository)}&branch=${encodeURIComponent(branch)}`)
+      setTree(result)
+    } catch (err) { setError(err.message) }
+    finally { setLoadingTree(false) }
+  }
+
+  const folders = useMemo(() => (tree?.entries || []).filter(item => item.type === 'tree'), [tree])
+  const files = useMemo(() => (tree?.entries || []).filter(item => item.type === 'blob'), [tree])
+
+  return <><div className="ambient ambient-one"/><div className="ambient ambient-two"/><div className="app-shell github-source-page">
+    <Topbar onHome={() => navigate('/')} onGitHub={() => navigate('/github')}/>
+    <main className="github-main">
+      <div className="eyebrow"><span className="eyebrow-line"/> GITHUB INTEGRATION</div>
+      <header className="github-intro"><h1>Your code.<br/><span className="headline-accent">One workspace.</span></h1><p className="lede">Choose a repository and branch. WebToApp will inspect the source structure without changing any files.</p></header>
+      <section className="workflow-card github-card">
+        <div className="panel-heading"><div><h2>GitHub connection</h2><p>Read-only repository inspection for this stage.</p></div><span className="ready-pill"><span/>{status?.connected ? 'Connected' : 'Checking'}</span></div>
+        {status?.connected ? <div className="github-account"><span className="github-avatar">GH</span><span><strong>{status.account}</strong><small>GitHub account connected · Installation {status.installationId}</small></span></div> : <div className="github-connect"><p>{loading ? 'Checking your GitHub session…' : 'Connect your GitHub account to browse your repositories.'}</p><a className="btn primary" href="/api/integrations/github/authorize">Connect GitHub →</a></div>}
+        {error && <p className="msg bad" role="alert">{error}</p>}
+        {status?.connected && <>
+          <div className="github-field">
+            <label htmlFor="github-repository">1. Select repository</label>
+            <select id="github-repository" value={repository} onChange={e => loadBranches(e.target.value)} disabled={loading || repositories.length === 0}>
+              <option value="">Choose a repository</option>
+              {repositories.map(repo => <option value={repo.fullName} key={repo.id}>{repo.fullName}{repo.private ? ' · Private' : ' · Public'}</option>)}
+            </select>
+            <p className="hint">{repositories.length} accessible {repositories.length === 1 ? 'repository' : 'repositories'} found.</p>
+          </div>
+          {repository && <div className="github-field">
+            <label htmlFor="github-branch">2. Select branch</label>
+            <select id="github-branch" value={branch} onChange={e => {setBranch(e.target.value);setTree(null)}} disabled={loadingBranches || branches.length === 0}>
+              <option value="">{loadingBranches ? 'Loading branches…' : 'Choose a branch'}</option>
+              {branches.map(item => <option value={item.name} key={item.name}>{item.name}</option>)}
+            </select>
+          </div>}
+          {branch && <div className="github-inspect-action"><button className="btn primary" type="button" onClick={inspectSource} disabled={loadingTree}>{loadingTree ? 'Inspecting source…' : 'Inspect repository source →'}</button><span className="footer-note">Read-only · No files will be changed</span></div>}
+        </>}
+      </section>
+      {tree && <section className="workflow-card github-results" aria-live="polite">
+        <div className="github-result-heading"><div><span className="step-kicker">SOURCE INSPECTION COMPLETE</span><h2>{tree.repository}</h2><p>Branch: <code>{tree.branch}</code> · Commit: <code>{tree.commitSha?.slice(0, 10)}</code></p></div><span className="ready-pill"><span/> Read-only</span></div>
+        <div className="github-summary-grid"><div><small>Detected technology</small><strong>{tree.framework}</strong></div><div><small>Repository entries</small><strong>{tree.totalEntries}</strong></div><div><small>Folders</small><strong>{folders.length}</strong></div><div><small>Files</small><strong>{files.length}</strong></div></div>
+        {tree.truncated && <p className="note">GitHub returned a large repository tree. Showing the first {tree.entries.length} entries.</p>}
+        <div className="github-file-list"><h3>Repository structure</h3>{tree.entries.map((entry, index) => <div className="github-file-row" key={entry.path}><span className="github-file-kind">{entry.type === 'tree' ? '▰' : '◇'}</span><code>{entry.path}</code><span>{entry.type === 'tree' ? 'Folder' : entry.size ? `${Math.ceil(entry.size / 1024)} KB` : 'File'}</span></div>)}</div>
+        <p className="hint">This stage only reads repository metadata and file paths. It does not download or modify source files.</p>
+      </section>}
+      <div className="github-back"><button className="btn secondary" type="button" onClick={() => navigate('/')}>← Back to website check</button><button className="link" type="button" onClick={loadRepositories}>Refresh repositories</button></div>
+    </main>
+  </div></>
+}
+
 function PwaSetupPage({ navigate }) {
   const [setup,setSetup]=useState(null)
   const [values,setValues]=useState({name:'',shortName:'',description:'',display:'standalone',theme:'#17243A',background:'#ffffff',serviceWorker:false})
@@ -220,5 +325,8 @@ function PwaSetupPage({ navigate }) {
 }
 export default function App(){
   const [path,navigate]=useRoute()
-  return path.replace(/\/$/,'')==='/setup'?<PwaSetupPage navigate={navigate}/>:<ScannerPage navigate={navigate}/>
+  const current = path.replace(/\/$/,'')
+  if (current === '/setup') return <PwaSetupPage navigate={navigate}/>
+  if (current === '/github') return <GitHubSourcePage navigate={navigate}/>
+  return <ScannerPage navigate={navigate}/>
 }
