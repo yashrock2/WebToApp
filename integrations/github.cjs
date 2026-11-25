@@ -346,7 +346,7 @@ function registerGitHubRoutes(app) {
         if (parts.length !== 2) {
           return res.status(400).json({ error: 'Paste the repository homepage URL, for example https://github.com/owner/repository.' });
         }
-        fullName = parts.join('/').replace(/\\.git$/i, '');
+        fullName = parts.join('/').replace(/\.git$/i, '');
       }
       if (!/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(fullName)) {
         return res.status(400).json({ error: 'Use a repository in owner/repository format.' });
