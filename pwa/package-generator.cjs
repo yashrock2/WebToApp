@@ -346,6 +346,62 @@ async function ensureFile(filePath, description) {
   return filePath;
 }
 
+/**
+ * Builds the reusable PWA payload shared by manual ZIP and GitHub workflows.
+ * Returns in-memory file contents; it never writes into a customer's project.
+ *
+ * @returns {Promise<Array<{path: string, content: Buffer, contentType: string}>>}
+ */
+async function createPwaFileBundle({
+  manifestResult,
+  iconResult,
+  includeServiceWorker = false
+} = {}) {
+  if (!manifestResult || typeof manifestResult.json !== 'string') {
+    throw new Error('A generated manifest result is required.');
+  }
+  if (!iconResult || iconResult.success !== true || !iconResult.outputDirectory) {
+    throw new Error('Successful icon generation is required.');
+  }
+
+  let manifest;
+  try {
+    manifest = JSON.parse(manifestResult.json);
+  } catch {
+    throw new Error('Generated manifest contains invalid JSON.');
+  }
+  validateManifest(manifest);
+
+  const iconsDirectory = path.resolve(iconResult.outputDirectory);
+  const bundle = [{
+    path: 'manifest.webmanifest',
+    content: Buffer.from(manifestResult.json, 'utf8'),
+    contentType: 'application/manifest+json'
+  }];
+
+  for (const icon of REQUIRED_ICONS) {
+    const iconPath = path.join(iconsDirectory, icon.filename);
+    await ensureFile(iconPath, `${icon.size}x${icon.size} application icon`);
+    const content = await fs.promises.readFile(iconPath);
+    if (!content.length) throw new Error(`Generated icon is empty: ${icon.filename}`);
+    bundle.push({
+      path: icon.archivePath,
+      content,
+      contentType: 'image/png'
+    });
+  }
+
+  if (includeServiceWorker) {
+    bundle.push({
+      path: 'service-worker.js',
+      content: Buffer.from(getServiceWorkerTemplate(), 'utf8'),
+      contentType: 'text/javascript'
+    });
+  }
+
+  return bundle;
+}
+
 async function generatePwaPackage({
   siteUrl,
   manifestResult,
@@ -513,5 +569,6 @@ module.exports = {
   generatePwaPackage,
   getHtmlInstructions,
   getReadme,
-  getServiceWorkerTemplate
+  getServiceWorkerTemplate,
+  createPwaFileBundle
 };
