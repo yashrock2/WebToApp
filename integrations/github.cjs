@@ -349,14 +349,29 @@ function registerGitHubRoutes(app) {
         { token: session.token }
       );
       const branch = (branches || []).find((item) => item.name === branchName);
-      if (!branch?.commit?.commit?.tree?.sha) {
+      const commitSha = branch?.commit?.sha;
+      if (!commitSha) {
         const error = new Error('The selected branch could not be found.');
         error.statusCode = 404;
         throw error;
       }
 
+      // The branches endpoint reliably provides the commit SHA. Resolve the
+      // commit separately to obtain its tree SHA instead of relying on a
+      // nested commit.commit.tree shape that may not be present.
+      const commit = await githubRequest(
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/commits/${commitSha}`,
+        { token: session.token }
+      );
+      const treeSha = commit?.tree?.sha;
+      if (!treeSha) {
+        const error = new Error('GitHub did not return a source tree for the selected branch.');
+        error.statusCode = 502;
+        throw error;
+      }
+
       const tree = await githubRequest(
-        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${branch.commit.commit.tree.sha}?recursive=1`,
+        `${API_ROOT}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/git/trees/${treeSha}?recursive=1`,
         { token: session.token }
       );
       const entries = (tree.tree || []).slice(0, 1500).map((entry) => ({
