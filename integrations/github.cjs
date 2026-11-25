@@ -237,7 +237,8 @@ function registerGitHubRoutes(app) {
       res.setHeader('Set-Cookie', [
         `${COOKIE_NAME}=${encodeURIComponent(sessionId)}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${Math.floor(SESSION_TTL_MS / 1000)}${secureCookie}`,
       ]);
-      return res.redirect(303, '/');
+      const frontendUrl = process.env.GITHUB_FRONTEND_URL || 'http://127.0.0.1:5173/github';
+      return res.redirect(303, frontendUrl);
     } catch (error) {
       console.error('[github callback]', error.message);
       return res.status(error.statusCode || 502).send(
