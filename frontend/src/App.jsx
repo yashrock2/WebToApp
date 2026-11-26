@@ -384,7 +384,7 @@ function GitHubSourcePage({ navigate }) {
       <header className="github-intro"><h1>Your code.<br/><span className="headline-accent">One workspace.</span></h1><p className="lede">Choose a repository and branch. WebToApp will inspect the source structure without changing any files.</p></header>
       <section className="workflow-card github-card">
         <div className="panel-heading"><div><h2>GitHub connection</h2><p>Read-only repository inspection for this stage.</p></div><span className="ready-pill"><span/>{status?.connected ? 'Connected' : 'Checking'}</span></div>
-        {status?.connected ? <div className="github-account"><span className="github-avatar">GH</span><span><strong>{status.account}</strong><small>GitHub account connected · Installation {status.installationId}</small></span></div> : <div className="github-connect"><p>{loading ? 'Checking your GitHub session…' : 'Connect your GitHub account to browse your repositories.'}</p><a className="btn primary" href="/api/integrations/github/install">Connect GitHub →</a></div>}
+        {status?.connected ? <div className="github-account"><span className="github-avatar">GH</span><span><strong>{status.account}</strong><small>GitHub account connected · Installation {status.installationId}</small></span></div> : <div className="github-connect"><p>{loading ? 'Checking your GitHub session…' : 'Connect your GitHub account to browse your repositories.'}</p><a className="btn primary" href="/api/integrations/github/authorize">Connect GitHub →</a></div>}
         {error && <p className="msg bad" role="alert">{error}</p>}
         {status?.connected && <>
           <div className="github-field">
